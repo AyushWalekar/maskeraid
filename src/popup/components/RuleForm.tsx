@@ -212,7 +212,7 @@ export function RuleForm({ rule, onSave, onCancel }: RuleFormProps) {
               <SelectValue placeholder="Select a category" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">None</SelectItem>
+              <SelectItem value="none">None</SelectItem>
               {CATEGORIES.map((cat) => (
                 <SelectItem key={cat} value={cat}>
                   {cat}

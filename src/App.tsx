@@ -76,7 +76,7 @@ function App() {
 
   if (showForm) {
     return (
-      <div className="w-[380px] min-h-[500px] bg-background">
+      <div className="w-[380px] h-[600px] bg-background">
         <RuleForm
           rule={editingRule}
           onSave={handleSaveRule}

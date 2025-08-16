@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build && npm run postbuild",
+    "build": "tsc -b && vite build && npm run build:content && npm run postbuild",
+    "build:content": "node build-content.js",
     "postbuild": "cp manifest.json dist/ && cp -r public/icons dist/",
     "lint": "eslint .",
     "preview": "vite preview"
@@ -35,6 +36,7 @@
     "@types/react": "^19.2.5",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.1.1",
+    "esbuild": "^0.25.12",
     "eslint": "^9.39.1",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.24",

@@ -10,6 +10,7 @@ let rules: SanitizationRule[] = [];
 let settings: ExtensionSettings | null = null;
 let overlayRoot: HTMLDivElement | null = null;
 let shadowRoot: ShadowRoot | null = null;
+let isAutoSanitizing = false;
 
 /**
  * Initialize the content script
@@ -29,6 +30,8 @@ async function init() {
     storage.getSettings(),
   ]);
 
+  console.log('Prompt Sanitizer: Settings loaded', settings);
+
   // Check if this site is enabled
   if (settings && !settings.enabledSites.includes(handler.siteName)) {
     console.log(`Prompt Sanitizer: Disabled for ${handler.displayName}`);
@@ -43,6 +46,27 @@ async function init() {
     }
     if (changes.settings) {
       settings = changes.settings;
+      console.log('Prompt Sanitizer: Settings updated', changes.settings);
+      // Re-setup auto-sanitize if setting changed
+      if (changes.settings.autoSanitize !== undefined) {
+        if (changes.settings.autoSanitize) {
+          setupAutoSanitizeOnSubmit(handler);
+        }
+        // Note: We don't remove listeners when disabled for simplicity
+        // They just won't trigger due to the check in listeners
+      }
+      // Re-create overlay if showOverlay changed
+      if (changes.settings.showOverlay !== undefined) {
+        if (changes.settings.showOverlay) {
+          createOverlay(handler);
+        } else {
+          if (overlayRoot) {
+            overlayRoot.remove();
+            overlayRoot = null;
+            shadowRoot = null;
+          }
+        }
+      }
     }
   });
 
@@ -51,11 +75,17 @@ async function init() {
 
   // Create overlay
   if (settings?.showOverlay !== false) {
+    console.log('Prompt Sanitizer: Creating overlay...');
     createOverlay(handler);
   }
 
   // Watch for textarea changes for auto-sanitize
   observeTextarea(handler);
+
+  // Set up auto-sanitize on submit if enabled
+  if (settings?.autoSanitize) {
+    setupAutoSanitizeOnSubmit(handler);
+  }
 }
 
 /**
@@ -63,6 +93,13 @@ async function init() {
  */
 function createOverlay(handler: ReturnType<typeof getSiteHandler>) {
   if (!handler) return;
+
+  // Remove existing overlay if present
+  if (overlayRoot) {
+    overlayRoot.remove();
+    overlayRoot = null;
+    shadowRoot = null;
+  }
 
   // Create container with Shadow DOM for style isolation
   overlayRoot = document.createElement('div');
@@ -105,8 +142,25 @@ function createOverlay(handler: ReturnType<typeof getSiteHandler>) {
   // Add to page
   document.body.appendChild(overlayRoot);
 
+  console.log('Prompt Sanitizer: Overlay added to DOM');
+
   // Position near the textarea
   positionOverlay(handler);
+
+  // Watch for textarea to appear if not found
+  const observer = new MutationObserver(() => {
+    const anchor = handler!.getOverlayAnchor();
+    if (anchor) {
+      positionOverlay(handler!);
+      // Stop observing once we found it
+      observer.disconnect();
+    }
+  });
+
+  observer.observe(document.body, {
+    childList: true,
+    subtree: true,
+  });
 
   // Re-position on scroll/resize
   window.addEventListener('scroll', () => positionOverlay(handler), { passive: true });
@@ -117,14 +171,30 @@ function createOverlay(handler: ReturnType<typeof getSiteHandler>) {
  * Position the overlay near the textarea
  */
 function positionOverlay(handler: ReturnType<typeof getSiteHandler>) {
-  if (!overlayRoot || !shadowRoot || !handler) return;
+  if (!overlayRoot || !shadowRoot || !handler) {
+    console.log('Prompt Sanitizer: Cannot position - missing elements');
+    return;
+  }
 
   const anchor = handler.getOverlayAnchor();
-  if (!anchor) return;
+  if (!anchor) {
+    console.log('Prompt Sanitizer: Anchor element not found, retrying...');
+    // Set a default visible position so it's not invisible
+    const container = shadowRoot.querySelector<HTMLElement>(`.${CSS_PREFIX}-container`);
+    if (container) {
+      container.style.position = 'fixed';
+      container.style.top = '100px';
+      container.style.right = '16px';
+      container.style.zIndex = String(OVERLAY_Z_INDEX);
+    }
+    return;
+  }
 
   const rect = anchor.getBoundingClientRect();
   const container = shadowRoot.querySelector<HTMLElement>(`.${CSS_PREFIX}-container`);
   if (!container) return;
+
+  console.log('Prompt Sanitizer: Positioning overlay at', { top: rect.top, right: rect.right });
 
   // Position at top-right of the input area
   container.style.position = 'fixed';
@@ -278,6 +348,148 @@ function hideBadge() {
   if (badge) {
     badge.style.display = 'none';
   }
+}
+
+/**
+ * Set up auto-sanitize on submit
+ */
+function setupAutoSanitizeOnSubmit(handler: ReturnType<typeof getSiteHandler>) {
+  if (!handler) return;
+
+  // Use MutationObserver to watch for submit button
+  const observer = new MutationObserver(() => {
+    const submitButton = handler!.getSubmitButton();
+    if (submitButton && !submitButton.hasAttribute('data-sanitizer-listener')) {
+      setupSubmitButtonListener(submitButton, handler!);
+    }
+  });
+
+  observer.observe(document.body, {
+    childList: true,
+    subtree: true,
+  });
+
+  // Also check immediately
+  const submitButton = handler.getSubmitButton();
+  if (submitButton) {
+    setupSubmitButtonListener(submitButton, handler);
+  }
+
+  // Set up keyboard shortcut listener on textarea
+  setupKeyboardShortcutListener(handler);
+}
+
+/**
+ * Attach listener to submit button
+ */
+function setupSubmitButtonListener(
+  button: HTMLElement,
+  handler: NonNullable<ReturnType<typeof getSiteHandler>>
+) {
+  if (button.hasAttribute('data-sanitizer-listener')) {
+    return;
+  }
+
+  button.setAttribute('data-sanitizer-listener', 'true');
+
+  button.addEventListener('click', async (e) => {
+    if (isAutoSanitizing) {
+      isAutoSanitizing = false;
+      return;
+    }
+
+    if (!settings?.autoSanitize) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    const text = handler.getInputText();
+    if (!text.trim()) {
+      showToast('No text to sanitize');
+      isAutoSanitizing = false;
+      return;
+    }
+
+    const result = sanitize(text, rules);
+
+    if (!result.hasChanges) {
+      showToast('No PII found, submitting...');
+      isAutoSanitizing = false;
+      button.click();
+      return;
+    }
+
+    // Show preview and confirm
+    const confirmed = await showPreview(text, result.sanitizedText, result.appliedRules);
+
+    if (confirmed) {
+      handler.setInputText(result.sanitizedText);
+      showToast(`Auto-sanitized! ${result.appliedRules.length} rule(s) applied`);
+
+      // Re-trigger the click after a short delay to allow state to update
+      setTimeout(() => {
+        isAutoSanitizing = true;
+        button.click();
+      }, 100);
+    } else {
+      showToast('Submission cancelled');
+    }
+  });
+}
+
+/**
+ * Set up keyboard shortcut listener (Cmd/Ctrl+Enter)
+ */
+function setupKeyboardShortcutListener(handler: NonNullable<ReturnType<typeof getSiteHandler>>) {
+  const textarea = handler.getTextarea();
+  if (!textarea) return;
+
+  textarea.addEventListener('keydown', async (e) => {
+    if (isAutoSanitizing) {
+      isAutoSanitizing = false;
+      return;
+    }
+
+    // Check for Cmd+Enter or Ctrl+Enter
+    const isCmdOrCtrl = e.metaKey || e.ctrlKey;
+    if (isCmdOrCtrl && e.key === 'Enter') {
+      if (!settings?.autoSanitize) return;
+
+      e.preventDefault();
+
+      const text = handler.getInputText();
+      if (!text.trim()) {
+        showToast('No text to sanitize');
+        return;
+      }
+
+      const result = sanitize(text, rules);
+
+      if (!result.hasChanges) {
+        showToast('No PII found, submitting...');
+        return;
+      }
+
+      // Show preview and confirm
+      const confirmed = await showPreview(text, result.sanitizedText, result.appliedRules);
+
+      if (confirmed) {
+        handler.setInputText(result.sanitizedText);
+        showToast(`Auto-sanitized! ${result.appliedRules.length} rule(s) applied`);
+
+        // Trigger submit button click after delay
+        setTimeout(() => {
+          const submitButton = handler.getSubmitButton();
+          if (submitButton) {
+            isAutoSanitizing = true;
+            submitButton.click();
+          }
+        }, 100);
+      } else {
+        showToast('Submission cancelled');
+      }
+    }
+  });
 }
 
 /**
