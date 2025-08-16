@@ -1,0 +1,214 @@
+import type {
+  SanitizationRule,
+  SanitizationResult,
+  AppliedRule,
+} from "./types";
+
+/**
+ * Apply all enabled sanitization rules to the input text
+ */
+export function sanitize(
+  text: string,
+  rules: SanitizationRule[]
+): SanitizationResult {
+  const enabledRules = rules.filter((r) => r.enabled);
+  let sanitizedText = text;
+  const appliedRules: AppliedRule[] = [];
+
+  for (const rule of enabledRules) {
+    const { newText, matches } = applyRule(sanitizedText, rule);
+    if (matches.length > 0) {
+      appliedRules.push({
+        rule,
+        matchCount: matches.length,
+        matches,
+      });
+      sanitizedText = newText;
+    }
+  }
+
+  return {
+    originalText: text,
+    sanitizedText,
+    appliedRules,
+    hasChanges: sanitizedText !== text,
+  };
+}
+
+/**
+ * Preview sanitization without storing result
+ * Same as sanitize but named differently for semantic clarity
+ */
+export function previewSanitization(
+  text: string,
+  rules: SanitizationRule[]
+): SanitizationResult {
+  return sanitize(text, rules);
+}
+
+/**
+ * Apply a single rule to text
+ */
+function applyRule(
+  text: string,
+  rule: SanitizationRule
+): { newText: string; matches: string[] } {
+  const matches: string[] = [];
+
+  if (rule.isRegex) {
+    try {
+      const flags = rule.flags || "g";
+      const regex = new RegExp(rule.pattern, flags);
+
+      // Find all matches first
+      let match;
+      const regexForMatching = new RegExp(rule.pattern, flags);
+      while ((match = regexForMatching.exec(text)) !== null) {
+        matches.push(match[0]);
+        // Prevent infinite loop for zero-length matches
+        if (match[0].length === 0) {
+          regexForMatching.lastIndex++;
+        }
+      }
+
+      // Apply replacement
+      const newText = text.replace(regex, rule.replacement);
+      return { newText, matches };
+    } catch (e) {
+      console.error("Invalid regex pattern:", rule.pattern, e);
+      return { newText: text, matches: [] };
+    }
+  } else {
+    // Literal string replacement (case-sensitive, global)
+    let newText = text;
+    let index = 0;
+
+    while ((index = newText.indexOf(rule.pattern, index)) !== -1) {
+      matches.push(rule.pattern);
+      newText =
+        newText.slice(0, index) +
+        rule.replacement +
+        newText.slice(index + rule.pattern.length);
+      index += rule.replacement.length;
+    }
+
+    return { newText, matches };
+  }
+}
+
+/**
+ * Validate a regex pattern
+ */
+export function validatePattern(
+  pattern: string,
+  isRegex: boolean
+): { valid: boolean; error?: string } {
+  if (!pattern) {
+    return { valid: false, error: "Pattern cannot be empty" };
+  }
+
+  if (isRegex) {
+    try {
+      new RegExp(pattern);
+      return { valid: true };
+    } catch (e) {
+      return { valid: false, error: (e as Error).message };
+    }
+  }
+
+  return { valid: true };
+}
+
+/**
+ * Test a pattern against sample text
+ */
+export function testPattern(
+  text: string,
+  pattern: string,
+  isRegex: boolean,
+  flags?: string
+): { matches: string[]; count: number } {
+  const matches: string[] = [];
+
+  if (!pattern || !text) {
+    return { matches: [], count: 0 };
+  }
+
+  if (isRegex) {
+    try {
+      const regex = new RegExp(pattern, flags || "g");
+      let match;
+      while ((match = regex.exec(text)) !== null) {
+        matches.push(match[0]);
+        if (match[0].length === 0) {
+          regex.lastIndex++;
+        }
+      }
+    } catch (e) {
+      // Invalid regex
+    }
+  } else {
+    let index = 0;
+    while ((index = text.indexOf(pattern, index)) !== -1) {
+      matches.push(pattern);
+      index += pattern.length;
+    }
+  }
+
+  return { matches, count: matches.length };
+}
+
+/**
+ * Common PII patterns for preset rules
+ */
+export const COMMON_PATTERNS = {
+  email: {
+    name: "Email Addresses",
+    pattern: "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}",
+    replacement: "[EMAIL]",
+    isRegex: true,
+    flags: "gi",
+    category: "PII",
+  },
+  phone: {
+    name: "Phone Numbers (US)",
+    pattern: "\\b(?:\\+1[-.]?)?\\(?\\d{3}\\)?[-.]?\\d{3}[-.]?\\d{4}\\b",
+    replacement: "[PHONE]",
+    isRegex: true,
+    flags: "g",
+    category: "PII",
+  },
+  ssn: {
+    name: "Social Security Number",
+    pattern: "\\b\\d{3}[-]?\\d{2}[-]?\\d{4}\\b",
+    replacement: "[SSN]",
+    isRegex: true,
+    flags: "g",
+    category: "PII",
+  },
+  creditCard: {
+    name: "Credit Card Number",
+    pattern: "\\b(?:\\d{4}[-\\s]?){3}\\d{4}\\b",
+    replacement: "[CREDIT_CARD]",
+    isRegex: true,
+    flags: "g",
+    category: "Financial",
+  },
+  ipAddress: {
+    name: "IP Address",
+    pattern: "\\b(?:\\d{1,3}\\.){3}\\d{1,3}\\b",
+    replacement: "[IP_ADDRESS]",
+    isRegex: true,
+    flags: "g",
+    category: "Technical",
+  },
+  apiKey: {
+    name: "API Key (Generic)",
+    pattern:
+      "(?:api[_-]?key|apikey|api[_-]?token)\\s*[:=]\\s*[\"']?([a-zA-Z0-9_-]{20,})[\"']?",
+    replacement: "[API_KEY]",
+    isRegex: true,
+    flags: "gi",
+    category: "Technical",
+  },
+} as const;
