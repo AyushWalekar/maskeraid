@@ -76,7 +76,7 @@ function App() {
 
   if (showForm) {
     return (
-      <div className="w-[380px] h-[600px] bg-background">
+      <div className="w-[480px] min-h-[500px] bg-background">
         <RuleForm
           rule={editingRule}
           onSave={handleSaveRule}
@@ -87,12 +87,12 @@ function App() {
   }
 
   return (
-    <div className="w-[380px] min-h-[500px] bg-background">
+    <div className="w-[480px] min-h-[500px] max-h-[600px] bg-background flex flex-col">
       {/* Header */}
-      <div className="px-4 py-3 border-b bg-gradient-to-r from-indigo-500 to-purple-500">
+      <div className="px-4 py-4 border-b bg-card shrink-0">
         <div className="flex items-center gap-2">
           <svg
-            className="w-5 h-5 text-white"
+            className="w-5 h-5 text-primary"
             xmlns="http://www.w3.org/2000/svg"
             viewBox="0 0 24 24"
             fill="none"
@@ -103,20 +103,20 @@ function App() {
           >
             <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
           </svg>
-          <h1 className="text-lg font-semibold text-white">Prompt Sanitizer</h1>
+          <h1 className="text-lg font-semibold text-foreground">Prompt Sanitizer</h1>
         </div>
-        <p className="text-xs text-white/80 mt-1">
+        <p className="text-xs text-muted-foreground mt-1">
           Protect sensitive data before sending to LLMs
         </p>
       </div>
 
       {/* Content */}
-      <Tabs defaultValue="rules" className="flex flex-col">
-        <TabsList className="grid w-full grid-cols-2 rounded-none border-b bg-muted/30">
-          <TabsTrigger value="rules" className="rounded-none data-[state=active]:bg-background">
+      <Tabs defaultValue="rules" className="flex flex-col mt-4 px-4 flex-1 min-h-0">
+        <TabsList className="grid w-full grid-cols-2 shrink-0">
+          <TabsTrigger value="rules">
             Rules ({rules.length})
           </TabsTrigger>
-          <TabsTrigger value="settings" className="rounded-none data-[state=active]:bg-background">
+          <TabsTrigger value="settings">
             Settings
           </TabsTrigger>
         </TabsList>

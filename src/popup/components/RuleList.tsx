@@ -10,6 +10,7 @@ import {
 } from '@/components/ui/tooltip';
 import type { SanitizationRule } from '@/shared/types';
 import { Pencil, Trash2, Plus, Code, Type } from 'lucide-react';
+import { trimStringSafe } from '@/lib/formatUtils';
 
 interface RuleListProps {
   rules: SanitizationRule[];
@@ -50,15 +51,15 @@ export function RuleList({ rules, onAdd, onEdit, onDelete, onToggle }: RuleListP
   }
 
   return (
-    <div className="flex flex-col h-[400px]">
-      <div className="p-3 border-b">
+    <div className="flex flex-col flex-1 min-h-0">
+      <div className="p-3 border-b shrink-0">
         <Button onClick={onAdd} size="sm" className="w-full">
           <Plus className="w-4 h-4 mr-1" />
           Add Rule
         </Button>
       </div>
-      
-      <ScrollArea className="flex-1">
+
+      <ScrollArea className="flex-1 min-h-0">
         <div className="p-2 space-y-2">
           <TooltipProvider delayDuration={200}>
             {rules.map((rule) => (
@@ -105,7 +106,7 @@ export function RuleList({ rules, onAdd, onEdit, onDelete, onToggle }: RuleListP
                       )}
                     </div>
                     <div className="text-xs text-muted-foreground font-mono truncate">
-                      {rule.pattern} → {rule.replacement}
+                      {trimStringSafe(rule.pattern, 20)} → {trimStringSafe(rule.replacement, 20)}
                     </div>
                   </div>
 
