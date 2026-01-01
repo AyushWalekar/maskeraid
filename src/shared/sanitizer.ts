@@ -2,6 +2,7 @@ import type {
   SanitizationRule,
   SanitizationResult,
   AppliedRule,
+  ReplacementMap,
 } from "./types";
 
 /**
@@ -16,12 +17,13 @@ export function sanitize(
   const appliedRules: AppliedRule[] = [];
 
   for (const rule of enabledRules) {
-    const { newText, matches } = applyRule(sanitizedText, rule);
+    const { newText, matches, replacementMap } = applyRule(sanitizedText, rule);
     if (matches.length > 0) {
       appliedRules.push({
         rule,
         matchCount: matches.length,
         matches,
+        replacementMap,
       });
       sanitizedText = newText;
     }
@@ -52,17 +54,17 @@ export function previewSanitization(
 function applyRule(
   text: string,
   rule: SanitizationRule
-): { newText: string; matches: string[] } {
+): { newText: string; matches: string[]; replacementMap: ReplacementMap } {
   const matches: string[] = [];
+  const replacementMap: ReplacementMap = {};
 
   if (rule.isRegex) {
     try {
       const flags = rule.flags || "g";
-      const regex = new RegExp(rule.pattern, flags);
+      const regexForMatching = new RegExp(rule.pattern, flags);
 
       // Find all matches first
       let match;
-      const regexForMatching = new RegExp(rule.pattern, flags);
       while ((match = regexForMatching.exec(text)) !== null) {
         matches.push(match[0]);
         // Prevent infinite loop for zero-length matches
@@ -71,12 +73,25 @@ function applyRule(
         }
       }
 
-      // Apply replacement
-      const newText = text.replace(regex, rule.replacement);
-      return { newText, matches };
+      // Get distinct values
+      const distinctValues = [...new Set(matches)];
+
+      // Create replacement map for distinct values
+      let newText = text;
+      distinctValues.forEach((value, index) => {
+        const indexedReplacement = `${rule.replacement}_${index + 1}`;
+        replacementMap[value] = indexedReplacement;
+        const valueRegex = new RegExp(
+          escapeRegExp(value),
+          flags.includes("i") ? "gi" : "g"
+        );
+        newText = newText.replace(valueRegex, indexedReplacement);
+      });
+
+      return { newText, matches, replacementMap };
     } catch (e) {
       console.error("Invalid regex pattern:", rule.pattern, e);
-      return { newText: text, matches: [] };
+      return { newText: text, matches: [], replacementMap: {} };
     }
   } else {
     // Literal string replacement (case-sensitive, global)
@@ -85,15 +100,25 @@ function applyRule(
 
     while ((index = newText.indexOf(rule.pattern, index)) !== -1) {
       matches.push(rule.pattern);
-      newText =
-        newText.slice(0, index) +
-        rule.replacement +
-        newText.slice(index + rule.pattern.length);
-      index += rule.replacement.length;
+      index += rule.pattern.length;
     }
 
-    return { newText, matches };
+    // For literal replacement, all matches are the same value
+    if (matches.length > 0) {
+      const indexedReplacement = `${rule.replacement}_1`;
+      replacementMap[rule.pattern] = indexedReplacement;
+      newText = text.split(rule.pattern).join(indexedReplacement);
+    }
+
+    return { newText, matches, replacementMap };
   }
+}
+
+/**
+ * Escape special regex characters in a string
+ */
+function escapeRegExp(string: string): string {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 /**
@@ -134,20 +159,20 @@ export function testPattern(
     return { matches: [], count: 0 };
   }
 
-  if (isRegex) {
-    try {
-      const regex = new RegExp(pattern, flags || "g");
-      let match;
-      while ((match = regex.exec(text)) !== null) {
-        matches.push(match[0]);
-        if (match[0].length === 0) {
-          regex.lastIndex++;
+    if (isRegex) {
+      try {
+        const regex = new RegExp(pattern, flags || "g");
+        let match;
+        while ((match = regex.exec(text)) !== null) {
+          matches.push(match[0]);
+          if (match[0].length === 0) {
+            regex.lastIndex++;
+          }
         }
+      } catch {
+        // Invalid regex
       }
-    } catch (e) {
-      // Invalid regex
-    }
-  } else {
+    } else {
     let index = 0;
     while ((index = text.indexOf(pattern, index)) !== -1) {
       matches.push(pattern);

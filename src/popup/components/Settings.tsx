@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import type { ExtensionSettings, SupportedSite } from '@/shared/types';
 import { storage } from '@/shared/storage';
-import { Download, Upload, ExternalLink } from 'lucide-react';
+import { Download, Upload, ExternalLink, RotateCcw } from 'lucide-react';
 
 interface SettingsProps {
   settings: ExtensionSettings;
@@ -50,11 +50,18 @@ export function Settings({ settings, onUpdate }: SettingsProps) {
       try {
         const count = await storage.importRules(text, true);
         alert(`Successfully imported ${count} new rule(s)`);
-      } catch (err) {
+      } catch {
         alert('Failed to import: Invalid file format');
       }
     };
     input.click();
+  };
+
+  const handleResetPositions = async () => {
+    if (confirm('Are you sure you want to reset all overlay button positions to default?')) {
+      await storage.resetAllOverlayPositions();
+      alert('All overlay positions have been reset');
+    }
   };
 
   return (
@@ -164,6 +171,25 @@ export function Settings({ settings, onUpdate }: SettingsProps) {
           </div>
           <p className="text-xs text-muted-foreground mt-2">
             Export your rules as JSON for backup or sharing
+          </p>
+        </div>
+
+        <Separator />
+
+        {/* Overlay Positions */}
+        <div>
+          <h3 className="font-medium mb-3">Overlay Button</h3>
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full"
+            onClick={handleResetPositions}
+          >
+            <RotateCcw className="w-4 h-4 mr-1.5" />
+            Reset All Positions
+          </Button>
+          <p className="text-xs text-muted-foreground mt-2">
+            Reset all overlay button positions to default. You can also right-click the overlay button to reset for the current site.
           </p>
         </div>
 

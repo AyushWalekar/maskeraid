@@ -12,6 +12,7 @@ export const STORAGE_KEYS = {
   RULES: "rules",
   SETTINGS: "settings",
   SYNC_META: "syncMeta",
+  OVERLAY_POSITIONS: "overlayPositions",
 } as const;
 
 /**

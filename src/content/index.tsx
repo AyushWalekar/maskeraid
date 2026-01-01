@@ -2,7 +2,7 @@
 import { getSiteHandler } from './sites';
 import { storage } from '../shared/storage';
 import { sanitize } from '../shared/sanitizer';
-import type { SanitizationRule, ExtensionSettings } from '../shared/types';
+import type { SanitizationRule, ExtensionSettings, ReplacementSession } from '../shared/types';
 import { CSS_PREFIX, OVERLAY_Z_INDEX } from '../shared/constants';
 
 // State
@@ -11,6 +11,8 @@ let settings: ExtensionSettings | null = null;
 let overlayRoot: HTMLDivElement | null = null;
 let shadowRoot: ShadowRoot | null = null;
 let isAutoSanitizing = false;
+let replacementSession: ReplacementSession | null = null;
+const currentHost = window.location.hostname;
 
 /**
  * Initialize the content script
@@ -66,6 +68,13 @@ async function init() {
             shadowRoot = null;
           }
         }
+      }
+    }
+    if (changes.overlayPositions) {
+      console.log('Prompt Sanitizer: Overlay positions updated', changes.overlayPositions);
+      // Reposition overlay if the current host's position changed
+      if (!changes.overlayPositions || !changes.overlayPositions[currentHost]) {
+        positionOverlay(handler);
       }
     }
   });
@@ -124,6 +133,7 @@ function createOverlay(handler: ReturnType<typeof getSiteHandler>) {
       <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
     </svg>
     <span class="${CSS_PREFIX}-text">Sanitize</span>
+    <span class="${CSS_PREFIX}-revert-indicator"></span>
   `;
   button.title = 'Click to sanitize your prompt';
   container.appendChild(button);
@@ -134,10 +144,13 @@ function createOverlay(handler: ReturnType<typeof getSiteHandler>) {
   badge.style.display = 'none';
   container.appendChild(badge);
 
-  // Click handler
+  // Click handler for sanitize button
   button.addEventListener('click', () => {
     handleSanitizeClick(handler);
   });
+
+  // Make container draggable
+  setupDragAndDrop(container, button);
 
   // Add to page
   document.body.appendChild(overlayRoot);
@@ -165,14 +178,32 @@ function createOverlay(handler: ReturnType<typeof getSiteHandler>) {
   // Re-position on scroll/resize
   window.addEventListener('scroll', () => positionOverlay(handler), { passive: true });
   window.addEventListener('resize', () => positionOverlay(handler), { passive: true });
+
+  // Cleanup on page unload
+  window.addEventListener('beforeunload', cleanup);
 }
 
 /**
  * Position the overlay near the textarea
  */
-function positionOverlay(handler: ReturnType<typeof getSiteHandler>) {
+async function positionOverlay(handler: ReturnType<typeof getSiteHandler>) {
   if (!overlayRoot || !shadowRoot || !handler) {
     console.log('Prompt Sanitizer: Cannot position - missing elements');
+    return;
+  }
+
+  const container = shadowRoot.querySelector<HTMLElement>(`.${CSS_PREFIX}-container`);
+  if (!container) return;
+
+  // Check if we have a saved position for this host
+  const savedPosition = await storage.getOverlayPosition(currentHost);
+  if (savedPosition) {
+    console.log('Prompt Sanitizer: Using saved position', savedPosition);
+    container.style.position = 'fixed';
+    container.style.top = `${savedPosition.top}px`;
+    container.style.right = `${savedPosition.right}px`;
+    container.style.zIndex = String(OVERLAY_Z_INDEX);
+    container.classList.add(`${CSS_PREFIX}-draggable`);
     return;
   }
 
@@ -180,19 +211,14 @@ function positionOverlay(handler: ReturnType<typeof getSiteHandler>) {
   if (!anchor) {
     console.log('Prompt Sanitizer: Anchor element not found, retrying...');
     // Set a default visible position so it's not invisible
-    const container = shadowRoot.querySelector<HTMLElement>(`.${CSS_PREFIX}-container`);
-    if (container) {
-      container.style.position = 'fixed';
-      container.style.top = '100px';
-      container.style.right = '16px';
-      container.style.zIndex = String(OVERLAY_Z_INDEX);
-    }
+    container.style.position = 'fixed';
+    container.style.top = '100px';
+    container.style.right = '16px';
+    container.style.zIndex = String(OVERLAY_Z_INDEX);
     return;
   }
 
   const rect = anchor.getBoundingClientRect();
-  const container = shadowRoot.querySelector<HTMLElement>(`.${CSS_PREFIX}-container`);
-  if (!container) return;
 
   console.log('Prompt Sanitizer: Positioning overlay at', { top: rect.top, right: rect.right });
 
@@ -201,6 +227,7 @@ function positionOverlay(handler: ReturnType<typeof getSiteHandler>) {
   container.style.top = `${rect.top + 8}px`;
   container.style.right = `${Math.max(window.innerWidth - rect.right + 8, 16)}px`;
   container.style.zIndex = String(OVERLAY_Z_INDEX);
+  container.classList.add(`${CSS_PREFIX}-draggable`);
 }
 
 /**
@@ -215,19 +242,51 @@ async function handleSanitizeClick(handler: ReturnType<typeof getSiteHandler>) {
     return;
   }
 
-  const result = sanitize(text, rules);
-  
-  if (!result.hasChanges) {
-    showToast('No matches found');
+  // If there's an active replacement session and current text matches sanitized text,
+  // show the review/revert modal
+  if (replacementSession && text === replacementSession.sanitizedText) {
+    const action = await showPreview(
+      replacementSession.originalText,
+      replacementSession.sanitizedText,
+      [],
+      true
+    );
+
+    if (action === 'revert') {
+      revertSanitization(handler);
+    }
     return;
   }
 
+  const result = sanitize(text, rules);
+
+  // if (!result.hasChanges) {
+  //   showToast('No matches found');
+  //   return;
+  // }
+
   // Show preview and confirm
   const confirmed = await showPreview(text, result.sanitizedText, result.appliedRules);
-  
+
   if (confirmed) {
+    // Store the replacement session for reverting
+    replacementSession = {
+      originalText: text,
+      sanitizedText: result.sanitizedText,
+      replacementMaps: result.appliedRules.map((r) => r.replacementMap),
+      timestamp: Date.now(),
+    };
+
     handler.setInputText(result.sanitizedText);
     showToast(`Sanitized! ${result.appliedRules.length} rule(s) applied`);
+
+    // Show revert indicator
+    const revertIndicator = shadowRoot?.querySelector<HTMLElement>(
+      `.${CSS_PREFIX}-revert-indicator`
+    );
+    if (revertIndicator) {
+      revertIndicator.style.display = 'block';
+    }
   }
 }
 
@@ -237,11 +296,12 @@ async function handleSanitizeClick(handler: ReturnType<typeof getSiteHandler>) {
 function showPreview(
   original: string,
   sanitized: string,
-  appliedRules: { rule: SanitizationRule; matchCount: number }[]
-): Promise<boolean> {
+  appliedRules: { rule: SanitizationRule; matchCount: number }[],
+  showRevertOption = false
+): Promise<'apply' | 'cancel' | 'revert'> {
   return new Promise((resolve) => {
     if (!shadowRoot) {
-      resolve(false);
+      resolve('cancel');
       return;
     }
 
@@ -250,7 +310,7 @@ function showPreview(
     modal.innerHTML = `
       <div class="${CSS_PREFIX}-modal-backdrop"></div>
       <div class="${CSS_PREFIX}-modal-content">
-        <h3>Sanitization Preview</h3>
+        <h3>${showRevertOption ? 'Review Sanitization' : 'Sanitization Preview'}</h3>
         <div class="${CSS_PREFIX}-modal-body">
           <div class="${CSS_PREFIX}-diff">
             <div class="${CSS_PREFIX}-diff-panel">
@@ -262,18 +322,27 @@ function showPreview(
               <pre>${escapeHtml(sanitized)}</pre>
             </div>
           </div>
-          <div class="${CSS_PREFIX}-rules-applied">
-            <h4>Rules Applied:</h4>
-            <ul>
-              ${appliedRules.map(({ rule, matchCount }) => 
-                `<li>${escapeHtml(rule.name)} (${matchCount} match${matchCount > 1 ? 'es' : ''})</li>`
-              ).join('')}
-            </ul>
-          </div>
+          ${appliedRules.length > 0 ? `
+            <div class="${CSS_PREFIX}-rules-applied">
+              <h4>Rules Applied:</h4>
+              <ul>
+                ${appliedRules.map(({ rule, matchCount }) =>
+                  `<li>${escapeHtml(rule.name)} (${matchCount} match${matchCount > 1 ? 'es' : ''})</li>`
+                ).join('')}
+              </ul>
+            </div>
+          ` : ''}
         </div>
         <div class="${CSS_PREFIX}-modal-actions">
-          <button class="${CSS_PREFIX}-btn ${CSS_PREFIX}-btn-secondary" data-action="cancel">Cancel</button>
-          <button class="${CSS_PREFIX}-btn ${CSS_PREFIX}-btn-primary" data-action="apply">Apply Changes</button>
+          ${showRevertOption
+            ? `
+              <button class="${CSS_PREFIX}-btn ${CSS_PREFIX}-btn-danger" data-action="revert">Revert Changes</button>
+              <button class="${CSS_PREFIX}-btn ${CSS_PREFIX}-btn-primary" data-action="keep">Keep Changes</button>
+            `
+            : `
+              <button class="${CSS_PREFIX}-btn ${CSS_PREFIX}-btn-secondary" data-action="cancel">Cancel</button>
+              <button class="${CSS_PREFIX}-btn ${CSS_PREFIX}-btn-primary" data-action="apply">Apply Changes</button>
+            `}
         </div>
       </div>
     `;
@@ -284,15 +353,104 @@ function showPreview(
     modal.addEventListener('click', (e) => {
       const target = e.target as HTMLElement;
       const action = target.dataset.action;
-      
-      if (action === 'apply') {
+
+      if (action === 'apply' || action === 'keep') {
         modal.remove();
-        resolve(true);
+        resolve('apply');
+      } else if (action === 'revert') {
+        modal.remove();
+        resolve('revert');
       } else if (action === 'cancel' || target.classList.contains(`${CSS_PREFIX}-modal-backdrop`)) {
         modal.remove();
-        resolve(false);
+        resolve('cancel');
       }
     });
+  });
+}
+
+/**
+ * Revert the last sanitization
+ */
+function revertSanitization(handler: ReturnType<typeof getSiteHandler>) {
+  if (!handler || !replacementSession) {
+    showToast('No sanitization to revert');
+    return;
+  }
+
+  handler.setInputText(replacementSession.originalText);
+  replacementSession = null;
+
+  // Hide revert indicator
+  const revertIndicator = shadowRoot?.querySelector<HTMLElement>(
+    `.${CSS_PREFIX}-revert-indicator`
+  );
+  if (revertIndicator) {
+    revertIndicator.style.display = 'none';
+  }
+
+  showToast('Reverted to original text');
+}
+
+/**
+ * Setup drag and drop for the overlay container
+ */
+function setupDragAndDrop(container: HTMLElement, button: HTMLElement) {
+  let isDragging = false;
+  let startX = 0;
+  let startY = 0;
+  let initialRight = 0;
+  let initialTop = 0;
+
+  // Use the button as the drag handle
+  button.style.cursor = 'grab';
+
+  button.addEventListener('mousedown', (e) => {
+    // Only left click
+    if (e.button !== 0) return;
+
+    isDragging = true;
+    startX = e.clientX;
+    startY = e.clientY;
+    initialRight = parseInt(container.style.right) || 0;
+    initialTop = parseInt(container.style.top) || 0;
+
+    button.style.cursor = 'grabbing';
+    e.preventDefault();
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!isDragging) return;
+
+    const deltaX = startX - e.clientX;
+    const deltaY = e.clientY - startY;
+
+    container.style.right = `${Math.max(0, initialRight + deltaX)}px`;
+    container.style.top = `${Math.max(0, initialTop + deltaY)}px`;
+  });
+
+  document.addEventListener('mouseup', async () => {
+    if (!isDragging) return;
+
+    isDragging = false;
+    button.style.cursor = 'grab';
+
+    // Save the new position
+    const newRight = parseInt(container.style.right) || 0;
+    const newTop = parseInt(container.style.top) || 0;
+
+    await storage.setOverlayPosition(currentHost, { top: newTop, right: newRight });
+    console.log('Prompt Sanitizer: Position saved', { top: newTop, right: newRight });
+  });
+
+  // Add context menu for reset option
+  container.addEventListener('contextmenu', async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    // Reset position
+    await storage.resetOverlayPosition(currentHost);
+    positionOverlay(getSiteHandler());
+    showToast('Position reset to default');
   });
 }
 
@@ -505,12 +663,30 @@ function observeTextarea(handler: ReturnType<typeof getSiteHandler>) {
     timeout = setTimeout(updateBadge, 300);
   };
 
+  // Clear session on input (user made changes)
+  const handleInput = () => {
+    if (replacementSession) {
+      const currentText = handler.getInputText();
+      if (currentText !== replacementSession.sanitizedText) {
+        replacementSession = null;
+        // Hide revert indicator
+        const revertIndicator = shadowRoot?.querySelector<HTMLElement>(
+          `.${CSS_PREFIX}-revert-indicator`
+        );
+        if (revertIndicator) {
+          revertIndicator.style.display = 'none';
+        }
+      }
+    }
+    debouncedUpdate();
+  };
+
   // Use MutationObserver to detect when textarea appears
   const observer = new MutationObserver(() => {
     const textarea = handler.getTextarea();
     if (textarea) {
-      textarea.addEventListener('input', debouncedUpdate);
-      textarea.addEventListener('keyup', debouncedUpdate);
+      textarea.addEventListener('input', handleInput);
+      textarea.addEventListener('keyup', handleInput);
       updateBadge();
     }
   });
@@ -523,9 +699,16 @@ function observeTextarea(handler: ReturnType<typeof getSiteHandler>) {
   // Also check immediately
   const textarea = handler.getTextarea();
   if (textarea) {
-    textarea.addEventListener('input', debouncedUpdate);
-    textarea.addEventListener('keyup', debouncedUpdate);
+    textarea.addEventListener('input', handleInput);
+    textarea.addEventListener('keyup', handleInput);
   }
+}
+
+/**
+ * Cleanup on page unload
+ */
+function cleanup() {
+  replacementSession = null;
 }
 
 /**
@@ -545,6 +728,15 @@ function getOverlayStyles(): string {
     .${CSS_PREFIX}-container {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
       font-size: 14px;
+      position: relative;
+    }
+
+    .${CSS_PREFIX}-container.${CSS_PREFIX}-draggable .${CSS_PREFIX}-button {
+      cursor: grab;
+    }
+
+    .${CSS_PREFIX}-container.${CSS_PREFIX}-draggable .${CSS_PREFIX}-button:active {
+      cursor: grabbing;
     }
 
     .${CSS_PREFIX}-button {
@@ -587,6 +779,31 @@ function getOverlayStyles(): string {
       align-items: center;
       justify-content: center;
       padding: 0 4px;
+    }
+
+    .${CSS_PREFIX}-revert-indicator {
+      display: none;
+      position: absolute;
+      top: -2px;
+      right: -2px;
+      width: 10px;
+      height: 10px;
+      background: #f59e0b;
+      border: 2px solid white;
+      border-radius: 50%;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% {
+        opacity: 1;
+        transform: scale(1);
+      }
+      50% {
+        opacity: 0.8;
+        transform: scale(1.1);
+      }
     }
 
     .${CSS_PREFIX}-toast {
@@ -739,6 +956,16 @@ function getOverlayStyles(): string {
       background: #f9fafb;
     }
 
+    .${CSS_PREFIX}-btn-danger {
+      background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+      color: white;
+      border: none;
+    }
+
+    .${CSS_PREFIX}-btn-danger:hover {
+      box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4);
+    }
+
     @media (prefers-color-scheme: dark) {
       .${CSS_PREFIX}-modal-content {
         background: #1f2937;
@@ -769,6 +996,10 @@ function getOverlayStyles(): string {
         background: #374151;
         color: #f9fafb;
         border-color: #4b5563;
+      }
+
+      .${CSS_PREFIX}-btn-danger {
+        background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
       }
     }
   `;

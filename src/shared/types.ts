@@ -37,6 +37,7 @@ export interface StorageSchema {
   rules: SanitizationRule[];
   settings: ExtensionSettings;
   syncMeta?: SyncMetadata;
+  overlayPositions?: OverlayPositions;
 }
 
 /**
@@ -59,12 +60,41 @@ export interface SanitizationResult {
 }
 
 /**
+ * Map from original matched value to its replacement string
+ */
+export type ReplacementMap = Record<string, string>;
+
+/**
  * Details about a rule that was applied
  */
 export interface AppliedRule {
   rule: SanitizationRule;
   matchCount: number;
   matches: string[];
+  replacementMap: ReplacementMap;
+}
+
+/**
+ * Overlay position for a specific host
+ */
+export interface OverlayPosition {
+  top: number;
+  right: number;
+}
+
+/**
+ * Overlay positions per host (website)
+ */
+export type OverlayPositions = Record<string, OverlayPosition>;
+
+/**
+ * Session state for tracking replacements
+ */
+export interface ReplacementSession {
+  originalText: string;
+  sanitizedText: string;
+  replacementMaps: ReplacementMap[];
+  timestamp: number;
 }
 
 /**

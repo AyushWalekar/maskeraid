@@ -2,12 +2,15 @@ import type {
   SanitizationRule,
   ExtensionSettings,
   StorageSchema,
+  OverlayPositions,
+  OverlayPosition,
 } from "./types";
 import { DEFAULT_SETTINGS as defaultSettings } from "./types";
 
 type StorageChangeCallback = (changes: {
   rules?: SanitizationRule[];
   settings?: ExtensionSettings;
+  overlayPositions?: OverlayPositions;
 }) => void;
 
 /**
@@ -28,6 +31,10 @@ class StorageService {
           }
           if (changes.settings) {
             update.settings = changes.settings.newValue as ExtensionSettings;
+          }
+          if (changes.overlayPositions) {
+            update.overlayPositions = changes.overlayPositions
+              .newValue as OverlayPositions;
           }
           this.notifyListeners(update);
         }
@@ -176,11 +183,71 @@ class StorageService {
    * Get full storage data
    */
   async getAll(): Promise<StorageSchema> {
-    const data = await this.get(["rules", "settings"]);
+    const data = await this.get(["rules", "settings", "overlayPositions"]);
     return {
       rules: data.rules || [],
       settings: data.settings || { ...defaultSettings },
+      overlayPositions: data.overlayPositions,
     };
+  }
+
+  /**
+   * Get overlay position for a specific host
+   */
+  async getOverlayPosition(host: string): Promise<OverlayPosition | null> {
+    const data = await this.get(["overlayPositions"]);
+    const positions = data.overlayPositions;
+    return positions?.[host] || null;
+  }
+
+  /**
+   * Set overlay position for a specific host
+   */
+  async setOverlayPosition(
+    host: string,
+    position: OverlayPosition
+  ): Promise<void> {
+    const data = await this.get(["overlayPositions"]);
+    const positions = data.overlayPositions || {};
+    positions[host] = position;
+    await this.set({ overlayPositions: positions });
+  }
+
+  /**
+   * Reset overlay position for a specific host
+   */
+  async resetOverlayPosition(host: string): Promise<void> {
+    const data = await this.get(["overlayPositions"]);
+    const positions = data.overlayPositions;
+    if (positions?.[host]) {
+      delete positions[host];
+      // Remove the entire key if no positions left
+      if (Object.keys(positions).length === 0) {
+        await this.remove(["overlayPositions"]);
+      } else {
+        await this.set({ overlayPositions: positions });
+      }
+    }
+  }
+
+  /**
+   * Reset all overlay positions
+   */
+  async resetAllOverlayPositions(): Promise<void> {
+    await this.remove(["overlayPositions"]);
+  }
+
+  private remove(keys: string[]): Promise<void> {
+    return new Promise((resolve) => {
+      if (typeof chrome !== "undefined" && chrome.storage) {
+        chrome.storage.local.remove(keys, resolve);
+      } else {
+        keys.forEach((key) => {
+          localStorage.removeItem(`ext_${key}`);
+        });
+        resolve();
+      }
+    });
   }
 
   private notifyListeners(changes: Parameters<StorageChangeCallback>[0]): void {
