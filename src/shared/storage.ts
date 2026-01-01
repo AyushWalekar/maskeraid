@@ -126,7 +126,9 @@ class StorageService {
    */
   async getSettings(): Promise<ExtensionSettings> {
     const data = await this.get(["settings"]);
-    return data.settings || { ...defaultSettings };
+    const stored = data.settings as Partial<ExtensionSettings> | undefined;
+    // Merge to support forward-compatible defaults when new settings are added
+    return { ...defaultSettings, ...(stored || {}) };
   }
 
   /**
@@ -184,9 +186,10 @@ class StorageService {
    */
   async getAll(): Promise<StorageSchema> {
     const data = await this.get(["rules", "settings", "overlayPositions"]);
+    const storedSettings = data.settings as Partial<ExtensionSettings> | undefined;
     return {
       rules: data.rules || [],
-      settings: data.settings || { ...defaultSettings },
+      settings: { ...defaultSettings, ...(storedSettings || {}) },
       overlayPositions: data.overlayPositions,
     };
   }
@@ -235,6 +238,20 @@ class StorageService {
    */
   async resetAllOverlayPositions(): Promise<void> {
     await this.remove(["overlayPositions"]);
+  }
+
+  /**
+   * Delete all rules
+   */
+  async deleteAllRules(): Promise<void> {
+    await this.set({ rules: [] });
+  }
+
+  /**
+   * Reset settings to default
+   */
+  async resetSettings(): Promise<void> {
+    await this.set({ settings: defaultSettings });
   }
 
   private remove(keys: string[]): Promise<void> {

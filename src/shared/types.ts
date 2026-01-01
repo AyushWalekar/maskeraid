@@ -21,9 +21,17 @@ export interface SanitizationRule {
 export interface ExtensionSettings {
   autoSanitize: boolean;
   showOverlay: boolean;
+  /**
+   * Overlay visibility behavior:
+   * - smart: only show when there's something to sanitize
+   * - always: always show (disabled when nothing to sanitize)
+   */
+  overlayMode: OverlayMode;
   enabledSites: SupportedSite[];
   theme: "light" | "dark" | "system";
 }
+
+export type OverlayMode = "smart" | "always";
 
 /**
  * Supported LLM sites
@@ -103,6 +111,7 @@ export interface ReplacementSession {
 export const DEFAULT_SETTINGS: ExtensionSettings = {
   autoSanitize: false,
   showOverlay: true,
+  overlayMode: "smart",
   enabledSites: ["chatgpt", "claude", "gemini"],
   theme: "system",
 };

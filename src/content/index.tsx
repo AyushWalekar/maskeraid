@@ -1,9 +1,13 @@
-
-import { getSiteHandler } from './sites';
-import { storage } from '../shared/storage';
-import { sanitize } from '../shared/sanitizer';
-import type { SanitizationRule, ExtensionSettings, ReplacementSession } from '../shared/types';
-import { CSS_PREFIX, OVERLAY_Z_INDEX } from '../shared/constants';
+import { getSiteHandler } from "./sites";
+import { storage } from "../shared/storage";
+import { sanitize } from "../shared/sanitizer";
+import { diffWordsWithSpace } from "diff";
+import type {
+  SanitizationRule,
+  ExtensionSettings,
+  ReplacementSession,
+} from "../shared/types";
+import { CSS_PREFIX, OVERLAY_Z_INDEX } from "../shared/constants";
 
 // State
 let rules: SanitizationRule[] = [];
@@ -12,6 +16,7 @@ let overlayRoot: HTMLDivElement | null = null;
 let shadowRoot: ShadowRoot | null = null;
 let isAutoSanitizing = false;
 let replacementSession: ReplacementSession | null = null;
+let overlayCollapsed = false;
 const currentHost = window.location.hostname;
 
 /**
@@ -20,7 +25,7 @@ const currentHost = window.location.hostname;
 async function init() {
   const handler = getSiteHandler();
   if (!handler) {
-    console.log('Prompt Sanitizer: No handler for this site');
+    console.log("Prompt Sanitizer: No handler for this site");
     return;
   }
 
@@ -32,7 +37,7 @@ async function init() {
     storage.getSettings(),
   ]);
 
-  console.log('Prompt Sanitizer: Settings loaded', settings);
+  console.log("Prompt Sanitizer: Settings loaded", settings);
 
   // Check if this site is enabled
   if (settings && !settings.enabledSites.includes(handler.siteName)) {
@@ -48,7 +53,7 @@ async function init() {
     }
     if (changes.settings) {
       settings = changes.settings;
-      console.log('Prompt Sanitizer: Settings updated', changes.settings);
+      console.log("Prompt Sanitizer: Settings updated", changes.settings);
       // Re-setup auto-sanitize if setting changed
       if (changes.settings.autoSanitize !== undefined) {
         if (changes.settings.autoSanitize) {
@@ -69,9 +74,16 @@ async function init() {
           }
         }
       }
+      // Recompute visibility if overlay mode changed
+      if (changes.settings.overlayMode !== undefined) {
+        updateBadge();
+      }
     }
     if (changes.overlayPositions) {
-      console.log('Prompt Sanitizer: Overlay positions updated', changes.overlayPositions);
+      console.log(
+        "Prompt Sanitizer: Overlay positions updated",
+        changes.overlayPositions
+      );
       // Reposition overlay if the current host's position changed
       if (!changes.overlayPositions || !changes.overlayPositions[currentHost]) {
         positionOverlay(handler);
@@ -84,7 +96,7 @@ async function init() {
 
   // Create overlay
   if (settings?.showOverlay !== false) {
-    console.log('Prompt Sanitizer: Creating overlay...');
+    console.log("Prompt Sanitizer: Creating overlay...");
     createOverlay(handler);
   }
 
@@ -110,23 +122,25 @@ function createOverlay(handler: ReturnType<typeof getSiteHandler>) {
     shadowRoot = null;
   }
 
+  overlayCollapsed = false;
+
   // Create container with Shadow DOM for style isolation
-  overlayRoot = document.createElement('div');
+  overlayRoot = document.createElement("div");
   overlayRoot.id = `${CSS_PREFIX}-overlay-root`;
-  shadowRoot = overlayRoot.attachShadow({ mode: 'closed' });
+  shadowRoot = overlayRoot.attachShadow({ mode: "closed" });
 
   // Inject styles
-  const styles = document.createElement('style');
+  const styles = document.createElement("style");
   styles.textContent = getOverlayStyles();
   shadowRoot.appendChild(styles);
 
   // Create button container
-  const container = document.createElement('div');
+  const container = document.createElement("div");
   container.className = `${CSS_PREFIX}-container`;
   shadowRoot.appendChild(container);
 
   // Create the sanitize button
-  const button = document.createElement('button');
+  const button = document.createElement("button");
   button.className = `${CSS_PREFIX}-button`;
   button.innerHTML = `
     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -135,18 +149,83 @@ function createOverlay(handler: ReturnType<typeof getSiteHandler>) {
     <span class="${CSS_PREFIX}-text">Sanitize</span>
     <span class="${CSS_PREFIX}-revert-indicator"></span>
   `;
-  button.title = 'Click to sanitize your prompt';
+  button.title = "Click to sanitize your prompt";
   container.appendChild(button);
 
-  // Badge for match count
-  const badge = document.createElement('span');
-  badge.className = `${CSS_PREFIX}-badge`;
-  badge.style.display = 'none';
-  container.appendChild(badge);
+  // Close/collapse button
+  const closeButton = document.createElement("button");
+  closeButton.className = `${CSS_PREFIX}-close`;
+  closeButton.type = "button";
+  closeButton.title = "Hide overlay";
+  closeButton.setAttribute("aria-label", "Hide overlay");
+  closeButton.innerHTML = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M18 6 6 18" />
+      <path d="M6 6 18 18" />
+    </svg>
+  `;
+  container.appendChild(closeButton);
+
+  // Mini collapsed button (shown when collapsed)
+  const miniButton = document.createElement("button");
+  miniButton.className = `${CSS_PREFIX}-mini`;
+  miniButton.type = "button";
+  miniButton.title = "Show sanitize button";
+  miniButton.setAttribute("aria-label", "Show sanitize button");
+  miniButton.innerHTML = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+    </svg>
+  `;
+  container.appendChild(miniButton);
+
+  // Match count + quick-apply (accept) control
+  const badgeWrap = document.createElement("div");
+  badgeWrap.className = `${CSS_PREFIX}-badge-wrap`;
+  badgeWrap.style.display = "none";
+
+  const badgeCount = document.createElement("span");
+  badgeCount.className = `${CSS_PREFIX}-badge-count`;
+  badgeWrap.appendChild(badgeCount);
+
+  const acceptButton = document.createElement("button");
+  acceptButton.className = `${CSS_PREFIX}-accept`;
+  acceptButton.type = "button";
+  acceptButton.title = "Apply changes without preview";
+  acceptButton.setAttribute("aria-label", "Apply changes without preview");
+  acceptButton.innerHTML = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M20 6 9 17l-5-5" />
+    </svg>
+  `;
+  badgeWrap.appendChild(acceptButton);
+
+  container.appendChild(badgeWrap);
 
   // Click handler for sanitize button
-  button.addEventListener('click', () => {
+  button.addEventListener("click", () => {
     handleSanitizeClick(handler);
+  });
+
+  acceptButton.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    handleQuickApplyClick(handler);
+  });
+
+  closeButton.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    overlayCollapsed = true;
+    updateOverlayPresentation();
+    showToast("Overlay hidden (click shield to reopen)");
+  });
+
+  miniButton.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    overlayCollapsed = false;
+    updateOverlayPresentation();
   });
 
   // Make container draggable
@@ -155,7 +234,7 @@ function createOverlay(handler: ReturnType<typeof getSiteHandler>) {
   // Add to page
   document.body.appendChild(overlayRoot);
 
-  console.log('Prompt Sanitizer: Overlay added to DOM');
+  console.log("Prompt Sanitizer: Overlay added to DOM");
 
   // Position near the textarea
   positionOverlay(handler);
@@ -176,11 +255,18 @@ function createOverlay(handler: ReturnType<typeof getSiteHandler>) {
   });
 
   // Re-position on scroll/resize
-  window.addEventListener('scroll', () => positionOverlay(handler), { passive: true });
-  window.addEventListener('resize', () => positionOverlay(handler), { passive: true });
+  window.addEventListener("scroll", () => positionOverlay(handler), {
+    passive: true,
+  });
+  window.addEventListener("resize", () => positionOverlay(handler), {
+    passive: true,
+  });
 
   // Cleanup on page unload
-  window.addEventListener('beforeunload', cleanup);
+  window.addEventListener("beforeunload", cleanup);
+
+  // Ensure correct initial visibility/presentation
+  updateBadge();
 }
 
 /**
@@ -188,18 +274,20 @@ function createOverlay(handler: ReturnType<typeof getSiteHandler>) {
  */
 async function positionOverlay(handler: ReturnType<typeof getSiteHandler>) {
   if (!overlayRoot || !shadowRoot || !handler) {
-    console.log('Prompt Sanitizer: Cannot position - missing elements');
+    console.log("Prompt Sanitizer: Cannot position - missing elements");
     return;
   }
 
-  const container = shadowRoot.querySelector<HTMLElement>(`.${CSS_PREFIX}-container`);
+  const container = shadowRoot.querySelector<HTMLElement>(
+    `.${CSS_PREFIX}-container`
+  );
   if (!container) return;
 
   // Check if we have a saved position for this host
   const savedPosition = await storage.getOverlayPosition(currentHost);
   if (savedPosition) {
-    console.log('Prompt Sanitizer: Using saved position', savedPosition);
-    container.style.position = 'fixed';
+    console.log("Prompt Sanitizer: Using saved position", savedPosition);
+    container.style.position = "fixed";
     container.style.top = `${savedPosition.top}px`;
     container.style.right = `${savedPosition.right}px`;
     container.style.zIndex = String(OVERLAY_Z_INDEX);
@@ -209,23 +297,29 @@ async function positionOverlay(handler: ReturnType<typeof getSiteHandler>) {
 
   const anchor = handler.getOverlayAnchor();
   if (!anchor) {
-    console.log('Prompt Sanitizer: Anchor element not found, retrying...');
+    console.log("Prompt Sanitizer: Anchor element not found, retrying...");
     // Set a default visible position so it's not invisible
-    container.style.position = 'fixed';
-    container.style.top = '100px';
-    container.style.right = '16px';
+    container.style.position = "fixed";
+    container.style.top = "100px";
+    container.style.right = "16px";
     container.style.zIndex = String(OVERLAY_Z_INDEX);
     return;
   }
 
   const rect = anchor.getBoundingClientRect();
 
-  console.log('Prompt Sanitizer: Positioning overlay at', { top: rect.top, right: rect.right });
+  console.log("Prompt Sanitizer: Positioning overlay at", {
+    top: rect.top,
+    right: rect.right,
+  });
 
   // Position at top-right of the input area
-  container.style.position = 'fixed';
+  container.style.position = "fixed";
   container.style.top = `${rect.top + 8}px`;
-  container.style.right = `${Math.max(window.innerWidth - rect.right + 8, 16)}px`;
+  container.style.right = `${Math.max(
+    window.innerWidth - rect.right + 8,
+    16
+  )}px`;
   container.style.zIndex = String(OVERLAY_Z_INDEX);
   container.classList.add(`${CSS_PREFIX}-draggable`);
 }
@@ -238,7 +332,7 @@ async function handleSanitizeClick(handler: ReturnType<typeof getSiteHandler>) {
 
   const text = handler.getInputText();
   if (!text.trim()) {
-    showToast('No text to sanitize');
+    showToast("No text to sanitize");
     return;
   }
 
@@ -252,7 +346,7 @@ async function handleSanitizeClick(handler: ReturnType<typeof getSiteHandler>) {
       true
     );
 
-    if (action === 'revert') {
+    if (action === "revert") {
       revertSanitization(handler);
     }
     return;
@@ -266,27 +360,78 @@ async function handleSanitizeClick(handler: ReturnType<typeof getSiteHandler>) {
   // }
 
   // Show preview and confirm
-  const confirmed = await showPreview(text, result.sanitizedText, result.appliedRules);
+  const action = await showPreview(
+    text,
+    result.sanitizedText,
+    result.appliedRules
+  );
 
-  if (confirmed) {
-    // Store the replacement session for reverting
-    replacementSession = {
-      originalText: text,
-      sanitizedText: result.sanitizedText,
-      replacementMaps: result.appliedRules.map((r) => r.replacementMap),
-      timestamp: Date.now(),
-    };
+  if (action === "apply") {
+    applySanitization(handler, text, result.sanitizedText, result.appliedRules);
+  }
+}
 
-    handler.setInputText(result.sanitizedText);
-    showToast(`Sanitized! ${result.appliedRules.length} rule(s) applied`);
+async function handleQuickApplyClick(
+  handler: ReturnType<typeof getSiteHandler>
+) {
+  if (!handler) return;
 
-    // Show revert indicator
-    const revertIndicator = shadowRoot?.querySelector<HTMLElement>(
-      `.${CSS_PREFIX}-revert-indicator`
+  const text = handler.getInputText();
+  if (!text.trim()) {
+    showToast("No text to sanitize");
+    return;
+  }
+
+  // If already sanitized, preserve the review/revert flow instead of re-applying.
+  if (replacementSession && text === replacementSession.sanitizedText) {
+    const action = await showPreview(
+      replacementSession.originalText,
+      replacementSession.sanitizedText,
+      [],
+      true
     );
-    if (revertIndicator) {
-      revertIndicator.style.display = 'block';
+    if (action === "revert") {
+      revertSanitization(handler);
     }
+    return;
+  }
+
+  const result = sanitize(text, rules);
+  if (!result.hasChanges) {
+    showToast("No matches found");
+    return;
+  }
+
+  applySanitization(handler, text, result.sanitizedText, result.appliedRules);
+}
+
+function applySanitization(
+  handler: ReturnType<typeof getSiteHandler>,
+  originalText: string,
+  sanitizedText: string,
+  appliedRules: {
+    rule: SanitizationRule;
+    matchCount: number;
+    replacementMap: Record<string, string>;
+  }[]
+): void {
+  if (!handler) return;
+
+  replacementSession = {
+    originalText,
+    sanitizedText,
+    replacementMaps: appliedRules.map((r) => r.replacementMap),
+    timestamp: Date.now(),
+  };
+
+  handler.setInputText(sanitizedText);
+  showToast(`Sanitized! ${appliedRules.length} rule(s) applied`);
+
+  const revertIndicator = shadowRoot?.querySelector<HTMLElement>(
+    `.${CSS_PREFIX}-revert-indicator`
+  );
+  if (revertIndicator) {
+    revertIndicator.style.display = "block";
   }
 }
 
@@ -298,51 +443,70 @@ function showPreview(
   sanitized: string,
   appliedRules: { rule: SanitizationRule; matchCount: number }[],
   showRevertOption = false
-): Promise<'apply' | 'cancel' | 'revert'> {
+): Promise<"apply" | "cancel" | "revert"> {
   return new Promise((resolve) => {
     if (!shadowRoot) {
-      resolve('cancel');
+      resolve("cancel");
       return;
     }
 
-    const modal = document.createElement('div');
+    const diffColumns = renderDiffColumns(original, sanitized);
+
+    const modal = document.createElement("div");
     modal.className = `${CSS_PREFIX}-modal`;
     modal.innerHTML = `
       <div class="${CSS_PREFIX}-modal-backdrop"></div>
       <div class="${CSS_PREFIX}-modal-content">
-        <h3>${showRevertOption ? 'Review Sanitization' : 'Sanitization Preview'}</h3>
+        <h3>${
+          showRevertOption ? "Review Sanitization" : "Sanitization Preview"
+        }</h3>
         <div class="${CSS_PREFIX}-modal-body">
           <div class="${CSS_PREFIX}-diff">
             <div class="${CSS_PREFIX}-diff-panel">
               <h4>Original</h4>
-              <pre>${escapeHtml(original)}</pre>
+              <pre class="${CSS_PREFIX}-diff-text">${
+      diffColumns.originalHtml
+    }</pre>
             </div>
             <div class="${CSS_PREFIX}-diff-panel ${CSS_PREFIX}-diff-sanitized">
               <h4>Sanitized</h4>
-              <pre>${escapeHtml(sanitized)}</pre>
+              <pre class="${CSS_PREFIX}-diff-text">${
+      diffColumns.sanitizedHtml
+    }</pre>
             </div>
           </div>
-          ${appliedRules.length > 0 ? `
+          ${
+            appliedRules.length > 0
+              ? `
             <div class="${CSS_PREFIX}-rules-applied">
               <h4>Rules Applied:</h4>
               <ul>
-                ${appliedRules.map(({ rule, matchCount }) =>
-                  `<li>${escapeHtml(rule.name)} (${matchCount} match${matchCount > 1 ? 'es' : ''})</li>`
-                ).join('')}
+                ${appliedRules
+                  .map(
+                    ({ rule, matchCount }) =>
+                      `<li>${escapeHtml(rule.name)} (${matchCount} match${
+                        matchCount > 1 ? "es" : ""
+                      })</li>`
+                  )
+                  .join("")}
               </ul>
             </div>
-          ` : ''}
+          `
+              : ""
+          }
         </div>
         <div class="${CSS_PREFIX}-modal-actions">
-          ${showRevertOption
-            ? `
+          ${
+            showRevertOption
+              ? `
               <button class="${CSS_PREFIX}-btn ${CSS_PREFIX}-btn-danger" data-action="revert">Revert Changes</button>
               <button class="${CSS_PREFIX}-btn ${CSS_PREFIX}-btn-primary" data-action="keep">Keep Changes</button>
             `
-            : `
+              : `
               <button class="${CSS_PREFIX}-btn ${CSS_PREFIX}-btn-secondary" data-action="cancel">Cancel</button>
               <button class="${CSS_PREFIX}-btn ${CSS_PREFIX}-btn-primary" data-action="apply">Apply Changes</button>
-            `}
+            `
+          }
         </div>
       </div>
     `;
@@ -350,22 +514,59 @@ function showPreview(
     shadowRoot.appendChild(modal);
 
     // Handle button clicks
-    modal.addEventListener('click', (e) => {
+    modal.addEventListener("click", (e) => {
       const target = e.target as HTMLElement;
       const action = target.dataset.action;
 
-      if (action === 'apply' || action === 'keep') {
+      if (action === "apply" || action === "keep") {
         modal.remove();
-        resolve('apply');
-      } else if (action === 'revert') {
+        resolve("apply");
+      } else if (action === "revert") {
         modal.remove();
-        resolve('revert');
-      } else if (action === 'cancel' || target.classList.contains(`${CSS_PREFIX}-modal-backdrop`)) {
+        resolve("revert");
+      } else if (
+        action === "cancel" ||
+        target.classList.contains(`${CSS_PREFIX}-modal-backdrop`)
+      ) {
         modal.remove();
-        resolve('cancel');
+        resolve("cancel");
       }
     });
   });
+}
+
+function renderDiffColumns(
+  original: string,
+  sanitized: string
+): { originalHtml: string; sanitizedHtml: string } {
+  const parts = diffWordsWithSpace(original, sanitized);
+
+  let originalHtml = "";
+  let sanitizedHtml = "";
+
+  for (const part of parts) {
+    const safe = escapeHtml(part.value);
+
+    // Original column: include removals + unchanged, skip additions
+    if (!part.added) {
+      if (part.removed) {
+        originalHtml += `<span class="${CSS_PREFIX}-diff-removed">${safe}</span>`;
+      } else {
+        originalHtml += safe;
+      }
+    }
+
+    // Sanitized column: include additions + unchanged, skip removals
+    if (!part.removed) {
+      if (part.added) {
+        sanitizedHtml += `<span class="${CSS_PREFIX}-diff-added">${safe}</span>`;
+      } else {
+        sanitizedHtml += safe;
+      }
+    }
+  }
+
+  return { originalHtml, sanitizedHtml };
 }
 
 /**
@@ -373,7 +574,7 @@ function showPreview(
  */
 function revertSanitization(handler: ReturnType<typeof getSiteHandler>) {
   if (!handler || !replacementSession) {
-    showToast('No sanitization to revert');
+    showToast("No sanitization to revert");
     return;
   }
 
@@ -385,10 +586,10 @@ function revertSanitization(handler: ReturnType<typeof getSiteHandler>) {
     `.${CSS_PREFIX}-revert-indicator`
   );
   if (revertIndicator) {
-    revertIndicator.style.display = 'none';
+    revertIndicator.style.display = "none";
   }
 
-  showToast('Reverted to original text');
+  showToast("Reverted to original text");
 }
 
 /**
@@ -402,9 +603,9 @@ function setupDragAndDrop(container: HTMLElement, button: HTMLElement) {
   let initialTop = 0;
 
   // Use the button as the drag handle
-  button.style.cursor = 'grab';
+  button.style.cursor = "grab";
 
-  button.addEventListener('mousedown', (e) => {
+  button.addEventListener("mousedown", (e) => {
     // Only left click
     if (e.button !== 0) return;
 
@@ -414,11 +615,11 @@ function setupDragAndDrop(container: HTMLElement, button: HTMLElement) {
     initialRight = parseInt(container.style.right) || 0;
     initialTop = parseInt(container.style.top) || 0;
 
-    button.style.cursor = 'grabbing';
+    button.style.cursor = "grabbing";
     e.preventDefault();
   });
 
-  document.addEventListener('mousemove', (e) => {
+  document.addEventListener("mousemove", (e) => {
     if (!isDragging) return;
 
     const deltaX = startX - e.clientX;
@@ -428,29 +629,35 @@ function setupDragAndDrop(container: HTMLElement, button: HTMLElement) {
     container.style.top = `${Math.max(0, initialTop + deltaY)}px`;
   });
 
-  document.addEventListener('mouseup', async () => {
+  document.addEventListener("mouseup", async () => {
     if (!isDragging) return;
 
     isDragging = false;
-    button.style.cursor = 'grab';
+    button.style.cursor = "grab";
 
     // Save the new position
     const newRight = parseInt(container.style.right) || 0;
     const newTop = parseInt(container.style.top) || 0;
 
-    await storage.setOverlayPosition(currentHost, { top: newTop, right: newRight });
-    console.log('Prompt Sanitizer: Position saved', { top: newTop, right: newRight });
+    await storage.setOverlayPosition(currentHost, {
+      top: newTop,
+      right: newRight,
+    });
+    console.log("Prompt Sanitizer: Position saved", {
+      top: newTop,
+      right: newRight,
+    });
   });
 
   // Add context menu for reset option
-  container.addEventListener('contextmenu', async (e) => {
+  container.addEventListener("contextmenu", async (e) => {
     e.preventDefault();
     e.stopPropagation();
 
     // Reset position
     await storage.resetOverlayPosition(currentHost);
     positionOverlay(getSiteHandler());
-    showToast('Position reset to default');
+    showToast("Position reset to default");
   });
 }
 
@@ -460,7 +667,7 @@ function setupDragAndDrop(container: HTMLElement, button: HTMLElement) {
 function showToast(message: string) {
   if (!shadowRoot) return;
 
-  const toast = document.createElement('div');
+  const toast = document.createElement("div");
   toast.className = `${CSS_PREFIX}-toast`;
   toast.textContent = message;
   shadowRoot.appendChild(toast);
@@ -483,28 +690,100 @@ function updateBadge() {
   const text = handler.getInputText();
   if (!text.trim()) {
     hideBadge();
+    updateOverlayVisibility(0, false);
     return;
   }
 
   const result = sanitize(text, rules);
-  const badge = shadowRoot.querySelector<HTMLElement>(`.${CSS_PREFIX}-badge`);
-  
-  if (badge) {
+  const badgeWrap = shadowRoot.querySelector<HTMLElement>(
+    `.${CSS_PREFIX}-badge-wrap`
+  );
+  const badgeCount = shadowRoot.querySelector<HTMLElement>(
+    `.${CSS_PREFIX}-badge-count`
+  );
+  const acceptButton = shadowRoot.querySelector<HTMLElement>(
+    `.${CSS_PREFIX}-accept`
+  );
+
+  if (badgeWrap && badgeCount && acceptButton) {
     if (result.appliedRules.length > 0) {
-      const totalMatches = result.appliedRules.reduce((sum, r) => sum + r.matchCount, 0);
-      badge.textContent = String(totalMatches);
-      badge.style.display = 'flex';
+      const totalMatches = result.appliedRules.reduce(
+        (sum, r) => sum + r.matchCount,
+        0
+      );
+      badgeCount.textContent = String(totalMatches);
+      badgeWrap.style.display = "flex";
+      // Show quick-apply when there are multiple matches (reduces preview fatigue).
+      acceptButton.style.display = totalMatches > 1 ? "flex" : "none";
+      updateOverlayVisibility(totalMatches, true);
     } else {
-      badge.style.display = 'none';
+      badgeWrap.style.display = "none";
+      updateOverlayVisibility(0, true);
     }
   }
 }
 
 function hideBadge() {
   if (!shadowRoot) return;
-  const badge = shadowRoot.querySelector<HTMLElement>(`.${CSS_PREFIX}-badge`);
-  if (badge) {
-    badge.style.display = 'none';
+  const badgeWrap = shadowRoot.querySelector<HTMLElement>(
+    `.${CSS_PREFIX}-badge-wrap`
+  );
+  if (badgeWrap) {
+    badgeWrap.style.display = "none";
+  }
+}
+
+function updateOverlayVisibility(totalMatches: number, hasText: boolean): void {
+  if (!shadowRoot) return;
+  const container = shadowRoot.querySelector<HTMLElement>(
+    `.${CSS_PREFIX}-container`
+  );
+  const button = shadowRoot.querySelector<HTMLButtonElement>(
+    `.${CSS_PREFIX}-button`
+  );
+  if (!container || !button) return;
+
+  const overlayEnabled = settings?.showOverlay !== false;
+  const mode = settings?.overlayMode ?? "smart";
+  const shouldShow =
+    overlayEnabled &&
+    (mode === "always" || (mode === "smart" && totalMatches > 0));
+
+  container.style.display = shouldShow ? "block" : "none";
+
+  if (!shouldShow) {
+    return;
+  }
+
+  // Always keep the button clickable so users can re-open the review/revert flow
+  // even after sanitization has already been applied.
+  button.title = hasText
+    ? "Click to sanitize your prompt"
+    : "No text to sanitize";
+
+  updateOverlayPresentation();
+}
+
+function updateOverlayPresentation(): void {
+  if (!shadowRoot) return;
+  const button = shadowRoot.querySelector<HTMLElement>(`.${CSS_PREFIX}-button`);
+  const closeButton = shadowRoot.querySelector<HTMLElement>(
+    `.${CSS_PREFIX}-close`
+  );
+  const miniButton = shadowRoot.querySelector<HTMLElement>(
+    `.${CSS_PREFIX}-mini`
+  );
+
+  if (!button || !closeButton || !miniButton) return;
+
+  if (overlayCollapsed) {
+    button.style.display = "none";
+    closeButton.style.display = "none";
+    miniButton.style.display = "flex";
+  } else {
+    button.style.display = "flex";
+    closeButton.style.display = "flex";
+    miniButton.style.display = "none";
   }
 }
 
@@ -517,7 +796,7 @@ function setupAutoSanitizeOnSubmit(handler: ReturnType<typeof getSiteHandler>) {
   // Use MutationObserver to watch for submit button
   const observer = new MutationObserver(() => {
     const submitButton = handler!.getSubmitButton();
-    if (submitButton && !submitButton.hasAttribute('data-sanitizer-listener')) {
+    if (submitButton && !submitButton.hasAttribute("data-sanitizer-listener")) {
       setupSubmitButtonListener(submitButton, handler!);
     }
   });
@@ -544,13 +823,13 @@ function setupSubmitButtonListener(
   button: HTMLElement,
   handler: NonNullable<ReturnType<typeof getSiteHandler>>
 ) {
-  if (button.hasAttribute('data-sanitizer-listener')) {
+  if (button.hasAttribute("data-sanitizer-listener")) {
     return;
   }
 
-  button.setAttribute('data-sanitizer-listener', 'true');
+  button.setAttribute("data-sanitizer-listener", "true");
 
-  button.addEventListener('click', async (e) => {
+  button.addEventListener("click", async (e) => {
     if (isAutoSanitizing) {
       isAutoSanitizing = false;
       return;
@@ -563,7 +842,7 @@ function setupSubmitButtonListener(
 
     const text = handler.getInputText();
     if (!text.trim()) {
-      showToast('No text to sanitize');
+      showToast("No text to sanitize");
       isAutoSanitizing = false;
       return;
     }
@@ -571,18 +850,24 @@ function setupSubmitButtonListener(
     const result = sanitize(text, rules);
 
     if (!result.hasChanges) {
-      showToast('No PII found, submitting...');
+      showToast("No PII found, submitting...");
       isAutoSanitizing = false;
       button.click();
       return;
     }
 
     // Show preview and confirm
-    const confirmed = await showPreview(text, result.sanitizedText, result.appliedRules);
+    const action = await showPreview(
+      text,
+      result.sanitizedText,
+      result.appliedRules
+    );
 
-    if (confirmed) {
+    if (action === "apply") {
       handler.setInputText(result.sanitizedText);
-      showToast(`Auto-sanitized! ${result.appliedRules.length} rule(s) applied`);
+      showToast(
+        `Auto-sanitized! ${result.appliedRules.length} rule(s) applied`
+      );
 
       // Re-trigger the click after a short delay to allow state to update
       setTimeout(() => {
@@ -590,7 +875,7 @@ function setupSubmitButtonListener(
         button.click();
       }, 100);
     } else {
-      showToast('Submission cancelled');
+      showToast("Submission cancelled");
     }
   });
 }
@@ -598,11 +883,13 @@ function setupSubmitButtonListener(
 /**
  * Set up keyboard shortcut listener (Cmd/Ctrl+Enter)
  */
-function setupKeyboardShortcutListener(handler: NonNullable<ReturnType<typeof getSiteHandler>>) {
+function setupKeyboardShortcutListener(
+  handler: NonNullable<ReturnType<typeof getSiteHandler>>
+) {
   const textarea = handler.getTextarea();
   if (!textarea) return;
 
-  textarea.addEventListener('keydown', async (e) => {
+  textarea.addEventListener("keydown", async (e) => {
     if (isAutoSanitizing) {
       isAutoSanitizing = false;
       return;
@@ -610,30 +897,36 @@ function setupKeyboardShortcutListener(handler: NonNullable<ReturnType<typeof ge
 
     // Check for Cmd+Enter or Ctrl+Enter
     const isCmdOrCtrl = e.metaKey || e.ctrlKey;
-    if (isCmdOrCtrl && e.key === 'Enter') {
+    if (isCmdOrCtrl && e.key === "Enter") {
       if (!settings?.autoSanitize) return;
 
       e.preventDefault();
 
       const text = handler.getInputText();
       if (!text.trim()) {
-        showToast('No text to sanitize');
+        showToast("No text to sanitize");
         return;
       }
 
       const result = sanitize(text, rules);
 
       if (!result.hasChanges) {
-        showToast('No PII found, submitting...');
+        showToast("No PII found, submitting...");
         return;
       }
 
       // Show preview and confirm
-      const confirmed = await showPreview(text, result.sanitizedText, result.appliedRules);
+      const action = await showPreview(
+        text,
+        result.sanitizedText,
+        result.appliedRules
+      );
 
-      if (confirmed) {
+      if (action === "apply") {
         handler.setInputText(result.sanitizedText);
-        showToast(`Auto-sanitized! ${result.appliedRules.length} rule(s) applied`);
+        showToast(
+          `Auto-sanitized! ${result.appliedRules.length} rule(s) applied`
+        );
 
         // Trigger submit button click after delay
         setTimeout(() => {
@@ -644,7 +937,7 @@ function setupKeyboardShortcutListener(handler: NonNullable<ReturnType<typeof ge
           }
         }, 100);
       } else {
-        showToast('Submission cancelled');
+        showToast("Submission cancelled");
       }
     }
   });
@@ -674,7 +967,7 @@ function observeTextarea(handler: ReturnType<typeof getSiteHandler>) {
           `.${CSS_PREFIX}-revert-indicator`
         );
         if (revertIndicator) {
-          revertIndicator.style.display = 'none';
+          revertIndicator.style.display = "none";
         }
       }
     }
@@ -685,8 +978,8 @@ function observeTextarea(handler: ReturnType<typeof getSiteHandler>) {
   const observer = new MutationObserver(() => {
     const textarea = handler.getTextarea();
     if (textarea) {
-      textarea.addEventListener('input', handleInput);
-      textarea.addEventListener('keyup', handleInput);
+      textarea.addEventListener("input", handleInput);
+      textarea.addEventListener("keyup", handleInput);
       updateBadge();
     }
   });
@@ -699,8 +992,8 @@ function observeTextarea(handler: ReturnType<typeof getSiteHandler>) {
   // Also check immediately
   const textarea = handler.getTextarea();
   if (textarea) {
-    textarea.addEventListener('input', handleInput);
-    textarea.addEventListener('keyup', handleInput);
+    textarea.addEventListener("input", handleInput);
+    textarea.addEventListener("keyup", handleInput);
   }
 }
 
@@ -715,7 +1008,7 @@ function cleanup() {
  * Escape HTML for safe display
  */
 function escapeHtml(text: string): string {
-  const div = document.createElement('div');
+  const div = document.createElement("div");
   div.textContent = text;
   return div.innerHTML;
 }
@@ -725,10 +1018,50 @@ function escapeHtml(text: string): string {
  */
 function getOverlayStyles(): string {
   return `
+    :host {
+      /* Theme tokens (mirrors src/index.css) */
+      --background: oklch(0.97 0.01 81.76);
+      --foreground: oklch(0.3 0.04 29.2);
+      --primary: oklch(0.52 0.13 144.33);
+      --primary-foreground: oklch(1 0 0);
+      --secondary: oklch(0.96 0.02 147.54);
+      --secondary-foreground: oklch(0.43 0.12 144.33);
+      --chart-2: oklch(0.58 0.14 144.14);
+      --accent: oklch(0.9 0.05 146.01);
+      --accent-foreground: oklch(0.43 0.12 144.33);
+      --muted: oklch(0.94 0.01 72.65);
+      --muted-foreground: oklch(0.45 0.05 38.69);
+      --border: oklch(0.88 0.02 77.29);
+      --ring: oklch(0.52 0.13 144.33);
+      --destructive: oklch(0.54 0.19 26.9);
+      --destructive-foreground: oklch(1 0 0);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :host {
+        --background: oklch(0.27 0.03 150.18);
+        --foreground: oklch(0.94 0.01 72.65);
+        --primary: oklch(0.67 0.16 144.06);
+        --primary-foreground: oklch(0.22 0.05 145.19);
+        --secondary: oklch(0.39 0.03 143.09);
+        --secondary-foreground: oklch(0.9 0.02 142.94);
+        --chart-2: oklch(0.72 0.14 144.92);
+        --accent: oklch(0.58 0.14 144.14);
+        --accent-foreground: oklch(0.94 0.01 72.65);
+        --muted: oklch(0.33 0.03 146.53);
+        --muted-foreground: oklch(0.86 0.02 77.29);
+        --border: oklch(0.39 0.03 143.09);
+        --ring: oklch(0.67 0.16 144.06);
+        --destructive: oklch(0.54 0.19 26.9);
+        --destructive-foreground: oklch(1 0 0);
+      }
+    }
+
     .${CSS_PREFIX}-container {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
       font-size: 14px;
       position: relative;
+      display: block;
     }
 
     .${CSS_PREFIX}-container.${CSS_PREFIX}-draggable .${CSS_PREFIX}-button {
@@ -744,41 +1077,121 @@ function getOverlayStyles(): string {
       align-items: center;
       gap: 6px;
       padding: 8px 14px;
-      background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
-      color: white;
+      background: linear-gradient(135deg, var(--primary) 0%, var(--chart-2) 100%);
+      color: var(--primary-foreground);
       border: none;
       border-radius: 8px;
       cursor: pointer;
       font-size: 13px;
       font-weight: 500;
-      box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
+      box-shadow: 0 8px 20px oklch(0 0 0 / 0.18);
       transition: all 0.2s ease;
     }
 
     .${CSS_PREFIX}-button:hover {
       transform: translateY(-1px);
-      box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
+      box-shadow: 0 10px 24px oklch(0 0 0 / 0.22);
     }
 
     .${CSS_PREFIX}-button:active {
       transform: translateY(0);
     }
 
-    .${CSS_PREFIX}-badge {
+    .${CSS_PREFIX}-button:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: 0 6px 16px oklch(0 0 0 / 0.14);
+    }
+
+    .${CSS_PREFIX}-close {
       position: absolute;
-      top: -6px;
-      right: -6px;
-      min-width: 18px;
-      height: 18px;
-      background: #ef4444;
-      color: white;
-      border-radius: 9px;
-      font-size: 11px;
-      font-weight: 600;
+      top: -8px;
+      left: -8px;
+      width: 22px;
+      height: 22px;
       display: flex;
       align-items: center;
       justify-content: center;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--background);
+      color: var(--muted-foreground);
+      cursor: pointer;
+      box-shadow: 0 6px 16px oklch(0 0 0 / 0.14);
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .${CSS_PREFIX}-close:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 8px 18px oklch(0 0 0 / 0.18);
+      color: var(--foreground);
+    }
+
+    .${CSS_PREFIX}-mini {
+      display: none;
+      align-items: center;
+      justify-content: center;
+      width: 40px;
+      height: 40px;
+      border: none;
+      border-radius: 999px;
+      background: linear-gradient(135deg, var(--primary) 0%, var(--chart-2) 100%);
+      color: var(--primary-foreground);
+      cursor: pointer;
+      box-shadow: 0 8px 20px oklch(0 0 0 / 0.18);
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .${CSS_PREFIX}-mini:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 10px 24px oklch(0 0 0 / 0.22);
+    }
+
+    .${CSS_PREFIX}-badge-wrap {
+      position: absolute;
+      top: -6px;
+      right: -6px;
+      display: none;
+      align-items: center;
+      gap: 4px;
       padding: 0 4px;
+      height: 20px;
+      border-radius: 999px;
+      background: color-mix(in oklch, var(--destructive) 88%, black 10%);
+      color: var(--destructive-foreground);
+      border: 1px solid color-mix(in oklch, var(--destructive) 55%, black 20%);
+      box-shadow: 0 6px 16px oklch(0 0 0 / 0.16);
+    }
+
+    .${CSS_PREFIX}-badge-count {
+      min-width: 14px;
+      text-align: center;
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 1;
+      padding: 0 2px;
+      user-select: none;
+    }
+
+    .${CSS_PREFIX}-accept {
+      width: 18px;
+      height: 18px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 999px;
+      border: none;
+      background: color-mix(in oklch, var(--background) 25%, transparent);
+      color: var(--destructive-foreground);
+      cursor: pointer;
+      transition: transform 0.15s ease, background 0.15s ease;
+      padding: 0;
+    }
+
+    .${CSS_PREFIX}-accept:hover {
+      transform: translateY(-1px);
+      background: color-mix(in oklch, var(--background) 38%, transparent);
     }
 
     .${CSS_PREFIX}-revert-indicator {
@@ -855,7 +1268,8 @@ function getOverlayStyles(): string {
 
     .${CSS_PREFIX}-modal-content {
       position: relative;
-      background: white;
+      background: var(--background);
+      color: var(--foreground);
       border-radius: 12px;
       padding: 24px;
       max-width: 600px;
@@ -869,14 +1283,14 @@ function getOverlayStyles(): string {
       margin: 0 0 16px;
       font-size: 18px;
       font-weight: 600;
-      color: #1f2937;
+      color: var(--foreground);
     }
 
     .${CSS_PREFIX}-modal-content h4 {
       margin: 0 0 8px;
       font-size: 13px;
       font-weight: 600;
-      color: #6b7280;
+      color: var(--muted-foreground);
       text-transform: uppercase;
       letter-spacing: 0.05em;
     }
@@ -889,9 +1303,10 @@ function getOverlayStyles(): string {
     }
 
     .${CSS_PREFIX}-diff-panel {
-      background: #f9fafb;
+      background: var(--muted);
       border-radius: 8px;
       padding: 12px;
+      border: 1px solid var(--border);
     }
 
     .${CSS_PREFIX}-diff-panel pre {
@@ -905,7 +1320,24 @@ function getOverlayStyles(): string {
     }
 
     .${CSS_PREFIX}-diff-sanitized {
-      background: #ecfdf5;
+      background: color-mix(in oklch, var(--accent) 35%, var(--background));
+    }
+
+    .${CSS_PREFIX}-diff-text {
+      line-height: 1.45;
+    }
+
+    .${CSS_PREFIX}-diff-added {
+      background: color-mix(in oklch, var(--primary) 22%, transparent);
+      border-radius: 3px;
+      padding: 0 1px;
+    }
+
+    .${CSS_PREFIX}-diff-removed {
+      background: color-mix(in oklch, var(--destructive) 18%, transparent);
+      border-radius: 3px;
+      padding: 0 1px;
+      text-decoration: line-through;
     }
 
     .${CSS_PREFIX}-rules-applied ul {
@@ -924,7 +1356,7 @@ function getOverlayStyles(): string {
       justify-content: flex-end;
       margin-top: 20px;
       padding-top: 16px;
-      border-top: 1px solid #e5e7eb;
+      border-top: 1px solid var(--border);
     }
 
     .${CSS_PREFIX}-btn {
@@ -937,77 +1369,77 @@ function getOverlayStyles(): string {
     }
 
     .${CSS_PREFIX}-btn-primary {
-      background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
-      color: white;
+      background: linear-gradient(135deg, var(--primary) 0%, var(--chart-2) 100%);
+      color: var(--primary-foreground);
       border: none;
     }
 
     .${CSS_PREFIX}-btn-primary:hover {
-      box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
+      box-shadow: 0 10px 24px oklch(0 0 0 / 0.22);
     }
 
     .${CSS_PREFIX}-btn-secondary {
-      background: white;
-      color: #374151;
-      border: 1px solid #d1d5db;
+      background: var(--background);
+      color: var(--foreground);
+      border: 1px solid var(--border);
     }
 
     .${CSS_PREFIX}-btn-secondary:hover {
-      background: #f9fafb;
+      background: color-mix(in oklch, var(--muted) 70%, var(--background));
     }
 
     .${CSS_PREFIX}-btn-danger {
-      background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-      color: white;
+      background: linear-gradient(135deg, var(--destructive) 0%, color-mix(in oklch, var(--destructive) 78%, black) 100%);
+      color: var(--destructive-foreground);
       border: none;
     }
 
     .${CSS_PREFIX}-btn-danger:hover {
-      box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4);
+      box-shadow: 0 10px 24px oklch(0 0 0 / 0.22);
     }
 
     @media (prefers-color-scheme: dark) {
       .${CSS_PREFIX}-modal-content {
-        background: #1f2937;
-        color: #f9fafb;
+        background: var(--background);
+        color: var(--foreground);
       }
 
       .${CSS_PREFIX}-modal-content h3 {
-        color: #f9fafb;
+        color: var(--foreground);
       }
 
       .${CSS_PREFIX}-diff-panel {
-        background: #374151;
+        background: var(--muted);
       }
 
       .${CSS_PREFIX}-diff-sanitized {
-        background: #065f46;
+        background: color-mix(in oklch, var(--accent) 35%, var(--background));
       }
 
       .${CSS_PREFIX}-rules-applied li {
-        color: #d1d5db;
+        color: var(--foreground);
       }
 
       .${CSS_PREFIX}-modal-actions {
-        border-color: #374151;
+        border-color: var(--border);
       }
 
       .${CSS_PREFIX}-btn-secondary {
-        background: #374151;
-        color: #f9fafb;
-        border-color: #4b5563;
+        background: var(--background);
+        color: var(--foreground);
+        border-color: var(--border);
       }
 
       .${CSS_PREFIX}-btn-danger {
-        background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
+        background: linear-gradient(135deg, var(--destructive) 0%, color-mix(in oklch, var(--destructive) 72%, black) 100%);
       }
     }
   `;
 }
 
 // Initialize when DOM is ready
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', init);
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", init);
 } else {
   init();
 }
