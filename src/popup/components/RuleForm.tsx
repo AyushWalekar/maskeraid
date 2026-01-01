@@ -1,56 +1,58 @@
-import { useState, useEffect } from 'react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
-import { Switch } from '@/components/ui/switch';
-import { Badge } from '@/components/ui/badge';
+import { useMemo, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
+import { Badge } from "@/components/ui/badge";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select';
-import type { SanitizationRule } from '@/shared/types';
-import { validatePattern, testPattern, COMMON_PATTERNS } from '@/shared/sanitizer';
-import { ArrowLeft, AlertCircle, CheckCircle, Wand2 } from 'lucide-react';
+} from "@/components/ui/select";
+import type { SanitizationRule } from "@/shared/types";
+import {
+  validatePattern,
+  testPattern,
+  COMMON_PATTERNS,
+} from "@/shared/sanitizer";
+import { ArrowLeft, AlertCircle, CheckCircle, Wand2 } from "lucide-react";
 
 interface RuleFormProps {
   rule: SanitizationRule | null;
-  onSave: (data: Omit<SanitizationRule, 'id' | 'createdAt' | 'updatedAt'>) => void;
+  onSave: (
+    data: Omit<SanitizationRule, "id" | "createdAt" | "updatedAt">
+  ) => void;
   onCancel: () => void;
 }
 
-const CATEGORIES = ['PII', 'Financial', 'Technical', 'Custom'];
+const CATEGORIES = ["PII", "Financial", "Technical", "Custom"];
 
 export function RuleForm({ rule, onSave, onCancel }: RuleFormProps) {
-  const [name, setName] = useState(rule?.name || '');
-  const [pattern, setPattern] = useState(rule?.pattern || '');
-  const [replacement, setReplacement] = useState(rule?.replacement || '');
+  const [name, setName] = useState(rule?.name || "");
+  const [pattern, setPattern] = useState(rule?.pattern || "");
+  const [replacement, setReplacement] = useState(rule?.replacement || "");
   const [isRegex, setIsRegex] = useState(rule?.isRegex || false);
-  const [flags, setFlags] = useState(rule?.flags || 'g');
+  const [flags, setFlags] = useState(rule?.flags || "g");
   const [enabled, setEnabled] = useState(rule?.enabled ?? true);
-  const [category, setCategory] = useState(rule?.category || '');
-  const [testText, setTestText] = useState('');
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    // Validate pattern on change
+  const [category, setCategory] = useState(rule?.category || "");
+  const [testText, setTestText] = useState("");
+  const error = useMemo(() => {
     const result = validatePattern(pattern, isRegex);
-    setError(result.valid ? null : result.error || null);
+    return result.valid ? null : result.error || null;
   }, [pattern, isRegex]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!name.trim() || !pattern.trim()) {
       return;
     }
 
     const validation = validatePattern(pattern, isRegex);
     if (!validation.valid) {
-      setError(validation.error || 'Invalid pattern');
       return;
     }
 
@@ -72,7 +74,7 @@ export function RuleForm({ rule, onSave, onCancel }: RuleFormProps) {
     setReplacement(preset.replacement);
     setIsRegex(preset.isRegex);
     setFlags(preset.flags);
-    setCategory(preset.category);
+    setCategory(preset.category || "");
   };
 
   const testResult = testText
@@ -92,9 +94,7 @@ export function RuleForm({ rule, onSave, onCancel }: RuleFormProps) {
         >
           <ArrowLeft className="w-4 h-4" />
         </Button>
-        <h2 className="font-semibold">
-          {rule ? 'Edit Rule' : 'New Rule'}
-        </h2>
+        <h2 className="font-semibold">{rule ? "Edit Rule" : "New Rule"}</h2>
       </div>
 
       {/* Form Content */}
@@ -102,7 +102,9 @@ export function RuleForm({ rule, onSave, onCancel }: RuleFormProps) {
         {/* Presets */}
         {!rule && (
           <div>
-            <Label className="text-xs text-muted-foreground">Quick Presets</Label>
+            <Label className="text-xs text-muted-foreground">
+              Quick Presets
+            </Label>
             <div className="flex flex-wrap gap-1.5 mt-1.5">
               {Object.entries(COMMON_PATTERNS).map(([key, preset]) => (
                 <Button
@@ -111,7 +113,9 @@ export function RuleForm({ rule, onSave, onCancel }: RuleFormProps) {
                   variant="outline"
                   size="sm"
                   className="h-7 text-xs"
-                  onClick={() => applyPreset(key as keyof typeof COMMON_PATTERNS)}
+                  onClick={() =>
+                    applyPreset(key as keyof typeof COMMON_PATTERNS)
+                  }
                 >
                   <Wand2 className="w-3 h-3 mr-1" />
                   {preset.name}
@@ -138,7 +142,7 @@ export function RuleForm({ rule, onSave, onCancel }: RuleFormProps) {
           <div>
             <Label>Pattern Type</Label>
             <p className="text-xs text-muted-foreground">
-              {isRegex ? 'Regular expression' : 'Literal text match'}
+              {isRegex ? "Regular expression" : "Literal text match"}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -154,16 +158,14 @@ export function RuleForm({ rule, onSave, onCancel }: RuleFormProps) {
             <Label htmlFor="pattern">Pattern *</Label>
             {isRegex && (
               <div className="flex gap-1">
-                {['g', 'i', 'm'].map((f) => (
+                {["g", "i", "m"].map((f) => (
                   <Badge
                     key={f}
-                    variant={flags.includes(f) ? 'default' : 'outline'}
+                    variant={flags.includes(f) ? "default" : "outline"}
                     className="cursor-pointer h-5 px-1.5 text-[10px]"
                     onClick={() => {
                       setFlags(
-                        flags.includes(f)
-                          ? flags.replace(f, '')
-                          : flags + f
+                        flags.includes(f) ? flags.replace(f, "") : flags + f
                       );
                     }}
                   >
@@ -177,8 +179,12 @@ export function RuleForm({ rule, onSave, onCancel }: RuleFormProps) {
             id="pattern"
             value={pattern}
             onChange={(e) => setPattern(e.target.value)}
-            placeholder={isRegex ? '[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}' : 'my-secret-api-key'}
-            className={`font-mono text-sm ${error ? 'border-destructive' : ''}`}
+            placeholder={
+              isRegex
+                ? "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}"
+                : "my-secret-api-key"
+            }
+            className={`font-mono text-sm ${error ? "border-destructive" : ""}`}
             required
           />
           {error && (
@@ -207,7 +213,12 @@ export function RuleForm({ rule, onSave, onCancel }: RuleFormProps) {
         {/* Category */}
         <div className="space-y-1.5">
           <Label>Category (Optional)</Label>
-          <Select value={category} onValueChange={setCategory}>
+          <Select
+            value={category || "none"}
+            onValueChange={(value) =>
+              setCategory(value === "none" ? "" : value)
+            }
+          >
             <SelectTrigger>
               <SelectValue placeholder="Select a category" />
             </SelectTrigger>
@@ -244,7 +255,8 @@ export function RuleForm({ rule, onSave, onCancel }: RuleFormProps) {
                 <>
                   <CheckCircle className="w-3.5 h-3.5 text-green-500" />
                   <span className="text-green-600">
-                    {testResult.count} match{testResult.count > 1 ? 'es' : ''} found
+                    {testResult.count} match{testResult.count > 1 ? "es" : ""}{" "}
+                    found
                   </span>
                 </>
               ) : (
@@ -273,7 +285,7 @@ export function RuleForm({ rule, onSave, onCancel }: RuleFormProps) {
           className="flex-1"
           disabled={!name.trim() || !pattern.trim() || !!error}
         >
-          {rule ? 'Save Changes' : 'Create Rule'}
+          {rule ? "Save Changes" : "Create Rule"}
         </Button>
       </div>
     </form>

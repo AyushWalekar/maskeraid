@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { RuleList } from '@/popup/components/RuleList';
 import { RuleForm } from '@/popup/components/RuleForm';
@@ -12,6 +12,7 @@ function App() {
   const [settings, setSettings] = useState<ExtensionSettings | null>(null);
   const [editingRule, setEditingRule] = useState<SanitizationRule | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const [ruleSearch, setRuleSearch] = useState('');
 
   useEffect(() => {
     // Load initial data
@@ -74,6 +75,17 @@ function App() {
     await storage.updateSettings(updates);
   };
 
+  const filteredRules = useMemo(() => {
+    const query = ruleSearch.trim().toLowerCase();
+    if (!query) return rules;
+
+    return rules.filter((r) => {
+      const name = r.name.toLowerCase();
+      const pattern = r.pattern.toLowerCase();
+      return name.includes(query) || pattern.includes(query);
+    });
+  }, [rules, ruleSearch]);
+
   if (showForm) {
     return (
       <div className="w-[480px] min-h-[500px] bg-background">
@@ -123,7 +135,10 @@ function App() {
 
         <TabsContent value="rules" className="mt-0 flex-1">
           <RuleList
-            rules={rules}
+            rules={filteredRules}
+            totalRuleCount={rules.length}
+            searchQuery={ruleSearch}
+            onSearchChange={setRuleSearch}
             onAdd={handleAddRule}
             onEdit={handleEditRule}
             onDelete={handleDeleteRule}
