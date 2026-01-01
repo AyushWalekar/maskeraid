@@ -40,7 +40,7 @@ export class GeminiHandler extends BaseSiteHandler {
     if (!textarea) return "";
 
     if (textarea.getAttribute("contenteditable") === "true") {
-      return textarea.innerText?.trim() || "";
+      return this.getContentEditableText(textarea);
     }
 
     return (textarea as HTMLTextAreaElement).value || "";
@@ -93,5 +93,38 @@ export class GeminiHandler extends BaseSiteHandler {
 
   getSubmitButton(): HTMLElement | null {
     return document.querySelector<HTMLElement>(this.selectors.submitButton);
+  }
+
+  /**
+   * Extract text from contenteditable preserving line breaks
+   */
+  private getContentEditableText(element: HTMLElement): string {
+    const lines: string[] = [];
+
+    const processNode = (node: Node) => {
+      if (node.nodeType === Node.TEXT_NODE) {
+        lines.push(node.textContent || "");
+      } else if (node.nodeType === Node.ELEMENT_NODE) {
+        const el = node as HTMLElement;
+        const tagName = el.tagName.toLowerCase();
+
+        if (tagName === "br") {
+          lines.push("\n");
+        } else if (["p", "div", "li"].includes(tagName)) {
+          if (lines.length > 0 && !lines[lines.length - 1].endsWith("\n")) {
+            lines.push("\n");
+          }
+          el.childNodes.forEach(processNode);
+          if (!lines[lines.length - 1]?.endsWith("\n")) {
+            lines.push("\n");
+          }
+        } else {
+          el.childNodes.forEach(processNode);
+        }
+      }
+    };
+
+    element.childNodes.forEach(processNode);
+    return lines.join("").trim();
   }
 }

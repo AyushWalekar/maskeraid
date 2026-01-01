@@ -12,13 +12,32 @@ export function sanitize(
   text: string,
   rules: SanitizationRule[]
 ): SanitizationResult {
+  console.log('[SANITIZE] Starting sanitization');
+  console.log('[SANITIZE] Original text:', JSON.stringify(text));
+  console.log('[SANITIZE] Total rules:', rules.length);
+
   const enabledRules = rules.filter((r) => r.enabled);
+  console.log('[SANITIZE] Enabled rules:', enabledRules.length);
+
   let sanitizedText = text;
   const appliedRules: AppliedRule[] = [];
 
   for (const rule of enabledRules) {
+    console.log(`[SANITIZE] Applying rule: ${rule.name}`);
+    console.log('[SANITIZE] Rule pattern:', rule.pattern);
+    console.log('[SANITIZE] Rule isRegex:', rule.isRegex);
+    console.log('[SANITIZE] Rule flags:', rule.flags);
+    console.log('[SANITIZE] Rule replacement:', rule.replacement);
+
     const { newText, matches, replacementMap } = applyRule(sanitizedText, rule);
+
+    console.log('[SANITIZE] Matches found:', matches.length);
+    console.log('[SANITIZE] Matches:', JSON.stringify(matches));
+    console.log('[SANITIZE] Replacement map:', JSON.stringify(replacementMap));
+
     if (matches.length > 0) {
+      console.log('[SANITIZE] Text BEFORE replacement:', JSON.stringify(sanitizedText));
+      console.log('[SANITIZE] Text AFTER replacement:', JSON.stringify(newText));
       appliedRules.push({
         rule,
         matchCount: matches.length,
@@ -26,8 +45,13 @@ export function sanitize(
         replacementMap,
       });
       sanitizedText = newText;
+    } else {
+      console.log('[SANITIZE] No matches for this rule');
     }
   }
+
+  console.log('[SANITIZE] Final sanitized text:', JSON.stringify(sanitizedText));
+  console.log('[SANITIZE] Has changes:', sanitizedText !== text);
 
   return {
     originalText: text,
@@ -59,13 +83,17 @@ function applyRule(
   const replacementMap: ReplacementMap = {};
 
   if (rule.isRegex) {
+    console.log('[APPLY_RULE] Using regex replacement');
     try {
       const flags = rule.flags || "g";
+      console.log('[APPLY_RULE] Regex flags:', flags);
       const regexForMatching = new RegExp(rule.pattern, flags);
+      console.log('[APPLY_RULE] Regex pattern:', regexForMatching.toString());
 
       // Find all matches first
       let match;
       while ((match = regexForMatching.exec(text)) !== null) {
+        console.log('[APPLY_RULE] Match found:', JSON.stringify(match[0]));
         matches.push(match[0]);
         // Prevent infinite loop for zero-length matches
         if (match[0].length === 0) {
@@ -75,17 +103,24 @@ function applyRule(
 
       // Get distinct values
       const distinctValues = [...new Set(matches)];
+      console.log('[APPLY_RULE] Distinct values:', JSON.stringify(distinctValues));
 
       // Create replacement map for distinct values
       let newText = text;
       distinctValues.forEach((value, index) => {
         const indexedReplacement = `${rule.replacement}_${index + 1}`;
         replacementMap[value] = indexedReplacement;
+        console.log('[APPLY_RULE] Replacing:', JSON.stringify(value), 'with:', indexedReplacement);
+
         const valueRegex = new RegExp(
           escapeRegExp(value),
           flags.includes("i") ? "gi" : "g"
         );
+        console.log('[APPLY_RULE] Value regex:', valueRegex.toString());
+        const beforeReplace = newText;
         newText = newText.replace(valueRegex, indexedReplacement);
+        console.log('[APPLY_RULE] Before:', JSON.stringify(beforeReplace));
+        console.log('[APPLY_RULE] After:', JSON.stringify(newText));
       });
 
       return { newText, matches, replacementMap };
@@ -95,19 +130,30 @@ function applyRule(
     }
   } else {
     // Literal string replacement (case-sensitive, global)
+    console.log('[APPLY_RULE] Using literal replacement');
+    console.log('[APPLY_RULE] Pattern to find:', JSON.stringify(rule.pattern));
+    console.log('[APPLY_RULE] Replacement string:', rule.replacement);
+
     let newText = text;
     let index = 0;
 
     while ((index = newText.indexOf(rule.pattern, index)) !== -1) {
       matches.push(rule.pattern);
+      console.log('[APPLY_RULE] Found pattern at index:', index);
       index += rule.pattern.length;
     }
+
+    console.log('[APPLY_RULE] Total matches found:', matches.length);
 
     // For literal replacement, all matches are the same value
     if (matches.length > 0) {
       const indexedReplacement = `${rule.replacement}_1`;
       replacementMap[rule.pattern] = indexedReplacement;
+      console.log('[APPLY_RULE] Indexed replacement:', indexedReplacement);
+      console.log('[APPLY_RULE] Text BEFORE split/join:', JSON.stringify(text));
+      console.log('[APPLY_RULE] Split by pattern:', JSON.stringify(text.split(rule.pattern)));
       newText = text.split(rule.pattern).join(indexedReplacement);
+      console.log('[APPLY_RULE] Text AFTER split/join:', JSON.stringify(newText));
     }
 
     return { newText, matches, replacementMap };
