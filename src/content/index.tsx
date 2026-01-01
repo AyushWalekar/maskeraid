@@ -186,19 +186,32 @@ function createOverlay(handler: ReturnType<typeof getSiteHandler>) {
 
   const badgeCount = document.createElement("span");
   badgeCount.className = `${CSS_PREFIX}-badge-count`;
+  badgeCount.style.display = "none";
   badgeWrap.appendChild(badgeCount);
 
   const acceptButton = document.createElement("button");
-  acceptButton.className = `${CSS_PREFIX}-accept`;
+  acceptButton.className = `${CSS_PREFIX}-quick ${CSS_PREFIX}-accept`;
   acceptButton.type = "button";
-  acceptButton.title = "Apply changes without preview";
   acceptButton.setAttribute("aria-label", "Apply changes without preview");
+  acceptButton.dataset.tooltip = "Apply changes without preview";
   acceptButton.innerHTML = `
     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <path d="M20 6 9 17l-5-5" />
     </svg>
   `;
   badgeWrap.appendChild(acceptButton);
+
+  const revertButton = document.createElement("button");
+  revertButton.className = `${CSS_PREFIX}-quick ${CSS_PREFIX}-revert`;
+  revertButton.type = "button";
+  revertButton.setAttribute("aria-label", "Revert to original text");
+  revertButton.dataset.tooltip = "Revert to original text";
+  revertButton.innerHTML = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3 12l6-6v4h7a5 5 0 1 1 0 10h-2" />
+    </svg>
+  `;
+  badgeWrap.appendChild(revertButton);
 
   container.appendChild(badgeWrap);
 
@@ -211,6 +224,12 @@ function createOverlay(handler: ReturnType<typeof getSiteHandler>) {
     e.preventDefault();
     e.stopPropagation();
     handleQuickApplyClick(handler);
+  });
+
+  revertButton.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    handleQuickRevertClick(handler);
   });
 
   closeButton.addEventListener("click", (e) => {
@@ -405,6 +424,11 @@ async function handleQuickApplyClick(
   applySanitization(handler, text, result.sanitizedText, result.appliedRules);
 }
 
+function handleQuickRevertClick(handler: ReturnType<typeof getSiteHandler>) {
+  if (!handler) return;
+  revertSanitization(handler);
+}
+
 function applySanitization(
   handler: ReturnType<typeof getSiteHandler>,
   originalText: string,
@@ -433,6 +457,9 @@ function applySanitization(
   if (revertIndicator) {
     revertIndicator.style.display = "block";
   }
+
+  updateQuickActions(0);
+  updateOverlayVisibility(0, true);
 }
 
 /**
@@ -590,6 +617,8 @@ function revertSanitization(handler: ReturnType<typeof getSiteHandler>) {
   }
 
   showToast("Reverted to original text");
+  updateQuickActions(0);
+  updateBadge();
 }
 
 /**
@@ -695,6 +724,29 @@ function updateBadge() {
   }
 
   const result = sanitize(text, rules);
+  let totalMatches = 0;
+
+  if (result.appliedRules.length > 0) {
+    totalMatches = result.appliedRules.reduce(
+      (sum, r) => sum + r.matchCount,
+      0
+    );
+    updateOverlayVisibility(totalMatches, true);
+  } else {
+    updateOverlayVisibility(0, true);
+  }
+
+  updateQuickActions(totalMatches);
+}
+
+function hideBadge() {
+  if (!shadowRoot) return;
+  updateQuickActions(0);
+}
+
+function updateQuickActions(totalMatches: number): void {
+  if (!shadowRoot) return;
+
   const badgeWrap = shadowRoot.querySelector<HTMLElement>(
     `.${CSS_PREFIX}-badge-wrap`
   );
@@ -704,33 +756,29 @@ function updateBadge() {
   const acceptButton = shadowRoot.querySelector<HTMLElement>(
     `.${CSS_PREFIX}-accept`
   );
-
-  if (badgeWrap && badgeCount && acceptButton) {
-    if (result.appliedRules.length > 0) {
-      const totalMatches = result.appliedRules.reduce(
-        (sum, r) => sum + r.matchCount,
-        0
-      );
-      badgeCount.textContent = String(totalMatches);
-      badgeWrap.style.display = "flex";
-      // Show quick-apply when there are multiple matches (reduces preview fatigue).
-      acceptButton.style.display = totalMatches > 1 ? "flex" : "none";
-      updateOverlayVisibility(totalMatches, true);
-    } else {
-      badgeWrap.style.display = "none";
-      updateOverlayVisibility(0, true);
-    }
-  }
-}
-
-function hideBadge() {
-  if (!shadowRoot) return;
-  const badgeWrap = shadowRoot.querySelector<HTMLElement>(
-    `.${CSS_PREFIX}-badge-wrap`
+  const revertButton = shadowRoot.querySelector<HTMLElement>(
+    `.${CSS_PREFIX}-revert`
   );
-  if (badgeWrap) {
-    badgeWrap.style.display = "none";
+
+  if (!badgeWrap || !badgeCount || !acceptButton || !revertButton) {
+    return;
   }
+
+  const hasMatches = totalMatches > 0;
+  const hasSession = Boolean(replacementSession);
+
+  if (hasMatches) {
+    badgeCount.style.display = "inline";
+    badgeCount.textContent = String(totalMatches);
+  } else {
+    badgeCount.style.display = "none";
+    badgeCount.textContent = "";
+  }
+
+  acceptButton.style.display = hasMatches && totalMatches > 1 ? "flex" : "none";
+  revertButton.style.display = hasSession ? "flex" : "none";
+
+  badgeWrap.style.display = hasMatches || hasSession ? "flex" : "none";
 }
 
 function updateOverlayVisibility(totalMatches: number, hasText: boolean): void {
@@ -747,7 +795,8 @@ function updateOverlayVisibility(totalMatches: number, hasText: boolean): void {
   const mode = settings?.overlayMode ?? "smart";
   const shouldShow =
     overlayEnabled &&
-    (mode === "always" || (mode === "smart" && totalMatches > 0));
+    (mode === "always" ||
+      (mode === "smart" && (totalMatches > 0 || Boolean(replacementSession))));
 
   container.style.display = shouldShow ? "block" : "none";
 
@@ -1156,7 +1205,7 @@ function getOverlayStyles(): string {
       align-items: center;
       gap: 4px;
       padding: 0 4px;
-      height: 20px;
+      height: 22px;
       border-radius: 999px;
       background: color-mix(in oklch, var(--destructive) 88%, black 10%);
       color: var(--destructive-foreground);
@@ -1172,26 +1221,69 @@ function getOverlayStyles(): string {
       line-height: 1;
       padding: 0 2px;
       user-select: none;
+      display: none;
     }
 
-    .${CSS_PREFIX}-accept {
+    .${CSS_PREFIX}-quick {
       width: 18px;
       height: 18px;
-      display: flex;
+      display: none;
       align-items: center;
       justify-content: center;
       border-radius: 999px;
       border: none;
-      background: color-mix(in oklch, var(--background) 25%, transparent);
-      color: var(--destructive-foreground);
       cursor: pointer;
       transition: transform 0.15s ease, background 0.15s ease;
       padding: 0;
     }
 
+    .${CSS_PREFIX}-quick::after {
+      content: attr(data-tooltip);
+      position: absolute;
+      top: -32px;
+      right: 0;
+      transform: translateX(50%);
+      background: var(--foreground);
+      color: var(--background);
+      font-size: 11px;
+      line-height: 1;
+      padding: 4px 8px;
+      border-radius: 999px;
+      white-space: nowrap;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.15s ease, transform 0.15s ease;
+      box-shadow: 0 8px 16px oklch(0 0 0 / 0.18);
+    }
+
+    .${CSS_PREFIX}-quick:hover::after {
+      opacity: 1;
+      transform: translateX(50%) translateY(-2px);
+    }
+
+    .${CSS_PREFIX}-accept,
+    .${CSS_PREFIX}-revert {
+      position: relative;
+    }
+
+    .${CSS_PREFIX}-accept {
+      background: color-mix(in oklch, var(--background) 25%, transparent);
+      color: var(--destructive-foreground);
+    }
+
     .${CSS_PREFIX}-accept:hover {
       transform: translateY(-1px);
       background: color-mix(in oklch, var(--background) 38%, transparent);
+    }
+
+    .${CSS_PREFIX}-revert {
+      background: color-mix(in oklch, var(--accent) 25%, transparent);
+      color: var(--accent-foreground);
+    }
+
+    .${CSS_PREFIX}-revert:hover {
+      transform: translateY(-1px);
+      background: color-mix(in oklch, var(--accent) 40%, transparent);
     }
 
     .${CSS_PREFIX}-revert-indicator {
