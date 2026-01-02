@@ -1,6 +1,6 @@
 import { getSiteHandler } from "./sites";
 import { storage } from "../shared/storage";
-import { sanitize } from "../shared/sanitizer";
+import { sanitize, testPattern } from "../shared/sanitizer";
 import { diffWordsWithSpace } from "diff";
 import type {
   SanitizationRule,
@@ -17,6 +17,7 @@ let shadowRoot: ShadowRoot | null = null;
 let isAutoSanitizing = false;
 let replacementSession: ReplacementSession | null = null;
 let overlayCollapsed = false;
+let overlayHiddenByUser = false;
 const currentHost = window.location.hostname;
 
 /**
@@ -65,6 +66,7 @@ async function init() {
       // Re-create overlay if showOverlay changed
       if (changes.settings.showOverlay !== undefined) {
         if (changes.settings.showOverlay) {
+          overlayHiddenByUser = false; // Reset hidden state when re-enabling
           createOverlay(handler);
         } else {
           if (overlayRoot) {
@@ -123,6 +125,7 @@ function createOverlay(handler: ReturnType<typeof getSiteHandler>) {
   }
 
   overlayCollapsed = false;
+  overlayHiddenByUser = false;
 
   // Create container with Shadow DOM for style isolation
   overlayRoot = document.createElement("div");
@@ -235,9 +238,11 @@ function createOverlay(handler: ReturnType<typeof getSiteHandler>) {
   closeButton.addEventListener("click", (e) => {
     e.preventDefault();
     e.stopPropagation();
-    overlayCollapsed = true;
-    updateOverlayPresentation();
-    showToast("Overlay hidden (click shield to reopen)");
+    overlayHiddenByUser = true;
+    if (overlayRoot) {
+      overlayRoot.style.display = "none";
+    }
+    showToast("Overlay hidden");
   });
 
   miniButton.addEventListener("click", (e) => {
@@ -358,14 +363,14 @@ async function handleSanitizeClick(handler: ReturnType<typeof getSiteHandler>) {
   // If there's an active replacement session and current text matches sanitized text,
   // show the review/revert modal
   if (replacementSession && text === replacementSession.sanitizedText) {
-    const action = await showPreview(
+    const previewResult = await showPreview(
       replacementSession.originalText,
       replacementSession.sanitizedText,
       [],
       true
     );
 
-    if (action === "revert") {
+    if (previewResult.action === "revert") {
       revertSanitization(handler);
     }
     return;
@@ -379,14 +384,23 @@ async function handleSanitizeClick(handler: ReturnType<typeof getSiteHandler>) {
   // }
 
   // Show preview and confirm
-  const action = await showPreview(
+  const previewResult = await showPreview(
     text,
     result.sanitizedText,
     result.appliedRules
   );
 
-  if (action === "apply") {
-    applySanitization(handler, text, result.sanitizedText, result.appliedRules);
+  if (
+    previewResult.action === "apply" &&
+    previewResult.sanitizedText &&
+    previewResult.appliedRules
+  ) {
+    applySanitization(
+      handler,
+      text,
+      previewResult.sanitizedText,
+      previewResult.appliedRules
+    );
   }
 }
 
@@ -403,13 +417,13 @@ async function handleQuickApplyClick(
 
   // If already sanitized, preserve the review/revert flow instead of re-applying.
   if (replacementSession && text === replacementSession.sanitizedText) {
-    const action = await showPreview(
+    const previewResult = await showPreview(
       replacementSession.originalText,
       replacementSession.sanitizedText,
       [],
       true
     );
-    if (action === "revert") {
+    if (previewResult.action === "revert") {
       revertSanitization(handler);
     }
     return;
@@ -463,21 +477,169 @@ function applySanitization(
 }
 
 /**
+ * Sanitize text with specific rules
+ */
+function sanitizeWithRules(
+  text: string,
+  selectedRules: SanitizationRule[]
+): ReturnType<typeof sanitize> {
+  // Temporarily enable selected rules and disable others
+  const originalEnabledStates = rules.map((r) => r.enabled);
+  rules.forEach((r) => {
+    r.enabled = selectedRules.some((sr) => sr.id === r.id);
+  });
+  const result = sanitize(text, rules);
+  // Restore original enabled states
+  rules.forEach((r, i) => {
+    r.enabled = originalEnabledStates[i];
+  });
+  return result;
+}
+
+/**
+ * Find all rules that match the text
+ */
+function findMatchingRules(text: string): Array<{
+  rule: SanitizationRule;
+  matchCount: number;
+}> {
+  const matchingRules: Array<{ rule: SanitizationRule; matchCount: number }> =
+    [];
+
+  for (const rule of rules) {
+    if (!rule.enabled) continue;
+
+    const { count } = testPattern(text, rule.pattern, rule.isRegex, rule.flags);
+
+    if (count > 0) {
+      matchingRules.push({ rule, matchCount: count });
+    }
+  }
+
+  return matchingRules;
+}
+
+/**
  * Show sanitization preview modal
  */
 function showPreview(
   original: string,
   sanitized: string,
-  appliedRules: { rule: SanitizationRule; matchCount: number }[],
+  _appliedRules: { rule: SanitizationRule; matchCount: number }[],
   showRevertOption = false
-): Promise<"apply" | "cancel" | "revert"> {
+): Promise<{
+  action: "apply" | "cancel" | "revert";
+  sanitizedText?: string;
+  appliedRules?: Array<{
+    rule: SanitizationRule;
+    matchCount: number;
+    replacementMap: Record<string, string>;
+  }>;
+}> {
   return new Promise((resolve) => {
     if (!shadowRoot) {
-      resolve("cancel");
+      resolve({ action: "cancel" });
       return;
     }
 
-    const diffColumns = renderDiffColumns(original, sanitized);
+    // Find all matching rules (only show rules that match)
+    const allMatchingRules = findMatchingRules(original);
+
+    // If no matching rules, fall back to original behavior
+    if (allMatchingRules.length === 0 && !showRevertOption) {
+      const diffColumns = renderDiffColumns(original, sanitized);
+      const modal = document.createElement("div");
+      modal.className = `${CSS_PREFIX}-modal`;
+      modal.innerHTML = `
+        <div class="${CSS_PREFIX}-modal-backdrop"></div>
+        <div class="${CSS_PREFIX}-modal-content">
+          <h3>Sanitization Preview</h3>
+          <div class="${CSS_PREFIX}-modal-body">
+            <div class="${CSS_PREFIX}-diff">
+              <div class="${CSS_PREFIX}-diff-panel">
+                <h4>Original</h4>
+                <pre class="${CSS_PREFIX}-diff-text">${diffColumns.originalHtml}</pre>
+              </div>
+              <div class="${CSS_PREFIX}-diff-panel ${CSS_PREFIX}-diff-sanitized">
+                <h4>Sanitized</h4>
+                <pre class="${CSS_PREFIX}-diff-text">${diffColumns.sanitizedHtml}</pre>
+              </div>
+            </div>
+          </div>
+          <div class="${CSS_PREFIX}-modal-actions">
+            <button class="${CSS_PREFIX}-btn ${CSS_PREFIX}-btn-secondary" data-action="cancel">Cancel</button>
+            <button class="${CSS_PREFIX}-btn ${CSS_PREFIX}-btn-primary" data-action="apply">Apply Changes</button>
+          </div>
+        </div>
+      `;
+      shadowRoot.appendChild(modal);
+      modal.addEventListener("click", (e) => {
+        const target = e.target as HTMLElement;
+        const action = target.dataset.action;
+        if (action === "apply") {
+          modal.remove();
+          resolve({
+            action: "apply",
+            sanitizedText: sanitized,
+            appliedRules: [],
+          });
+        } else if (
+          action === "cancel" ||
+          target.classList.contains(`${CSS_PREFIX}-modal-backdrop`)
+        ) {
+          modal.remove();
+          resolve({ action: "cancel" });
+        }
+      });
+      return;
+    }
+
+    // Track selected rules (all selected by default)
+    const selectedRuleIds = new Set(allMatchingRules.map((r) => r.rule.id));
+
+    // Initial sanitization with all rules selected
+    let currentResult = sanitizeWithRules(
+      original,
+      allMatchingRules.map((r) => r.rule)
+    );
+    let currentSanitized = currentResult.sanitizedText;
+
+    const updatePreview = () => {
+      const rulesToApply = allMatchingRules
+        .filter((r) => selectedRuleIds.has(r.rule.id))
+        .map((r) => r.rule);
+
+      currentResult = sanitizeWithRules(original, rulesToApply);
+      currentSanitized = currentResult.sanitizedText;
+
+      const diffColumns = renderDiffColumns(original, currentSanitized);
+
+      const originalPanel = modal.querySelector<HTMLElement>(
+        `.${CSS_PREFIX}-diff-panel:first-child pre`
+      );
+      const sanitizedPanel = modal.querySelector<HTMLElement>(
+        `.${CSS_PREFIX}-diff-panel:last-child pre`
+      );
+
+      if (originalPanel) {
+        originalPanel.innerHTML = diffColumns.originalHtml;
+      }
+      if (sanitizedPanel) {
+        sanitizedPanel.innerHTML = diffColumns.sanitizedHtml;
+      }
+
+      // Update rule checkboxes
+      allMatchingRules.forEach(({ rule }) => {
+        const checkbox = modal.querySelector<HTMLInputElement>(
+          `input[data-rule-id="${rule.id}"]`
+        );
+        if (checkbox) {
+          checkbox.checked = selectedRuleIds.has(rule.id);
+        }
+      });
+    };
+
+    const diffColumns = renderDiffColumns(original, currentSanitized);
 
     const modal = document.createElement("div");
     modal.className = `${CSS_PREFIX}-modal`;
@@ -503,20 +665,36 @@ function showPreview(
             </div>
           </div>
           ${
-            appliedRules.length > 0
+            allMatchingRules.length > 0
               ? `
-            <div class="${CSS_PREFIX}-rules-applied">
-              <h4>Rules Applied:</h4>
-              <ul>
-                ${appliedRules
-                  .map(
-                    ({ rule, matchCount }) =>
-                      `<li>${escapeHtml(rule.name)} (${matchCount} match${
+            <div class="${CSS_PREFIX}-rules-accordion">
+              <button class="${CSS_PREFIX}-rules-accordion-header" type="button" aria-expanded="false">
+                <span>Rules Applied (${allMatchingRules.length})</span>
+                <svg class="${CSS_PREFIX}-accordion-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="m6 9 6 6 6-6"/>
+                </svg>
+              </button>
+              <div class="${CSS_PREFIX}-rules-accordion-content" style="display: none;">
+                <div class="${CSS_PREFIX}-rules-list">
+                  ${allMatchingRules
+                    .map(
+                      ({ rule, matchCount }) => `
+                    <label class="${CSS_PREFIX}-rule-item">
+                      <input type="checkbox" data-rule-id="${
+                        rule.id
+                      }" checked />
+                      <span class="${CSS_PREFIX}-rule-name">${escapeHtml(
+                        rule.name
+                      )}</span>
+                      <span class="${CSS_PREFIX}-rule-count">${matchCount} match${
                         matchCount > 1 ? "es" : ""
-                      })</li>`
-                  )
-                  .join("")}
-              </ul>
+                      }</span>
+                    </label>
+                  `
+                    )
+                    .join("")}
+                </div>
+              </div>
             </div>
           `
               : ""
@@ -540,23 +718,80 @@ function showPreview(
 
     shadowRoot.appendChild(modal);
 
+    // Setup accordion toggle
+    if (allMatchingRules.length > 0) {
+      const accordionHeader = modal.querySelector<HTMLElement>(
+        `.${CSS_PREFIX}-rules-accordion-header`
+      );
+      const accordionContent = modal.querySelector<HTMLElement>(
+        `.${CSS_PREFIX}-rules-accordion-content`
+      );
+      const accordionIcon = modal.querySelector<HTMLElement>(
+        `.${CSS_PREFIX}-accordion-icon`
+      );
+
+      if (accordionHeader && accordionContent && accordionIcon) {
+        accordionHeader.addEventListener("click", () => {
+          const isExpanded =
+            accordionHeader.getAttribute("aria-expanded") === "true";
+          accordionHeader.setAttribute("aria-expanded", String(!isExpanded));
+          accordionContent.style.display = isExpanded ? "none" : "block";
+          accordionIcon.style.transform = isExpanded
+            ? "rotate(0deg)"
+            : "rotate(180deg)";
+        });
+      }
+
+      // Setup checkbox handlers
+      const checkboxes =
+        modal.querySelectorAll<HTMLInputElement>(`input[data-rule-id]`);
+      checkboxes.forEach((checkbox) => {
+        checkbox.addEventListener("change", () => {
+          const ruleId = checkbox.dataset.ruleId;
+          if (!ruleId) return;
+
+          if (checkbox.checked) {
+            selectedRuleIds.add(ruleId);
+          } else {
+            selectedRuleIds.delete(ruleId);
+          }
+
+          updatePreview();
+        });
+      });
+    }
+
+    // Initial update to ensure checkboxes are synced
+    if (allMatchingRules.length > 0) {
+      updatePreview();
+    }
+
     // Handle button clicks
     modal.addEventListener("click", (e) => {
       const target = e.target as HTMLElement;
       const action = target.dataset.action;
 
       if (action === "apply" || action === "keep") {
+        // Get selected rules for result with replacementMap from current result
+        const selectedAppliedRules = currentResult.appliedRules.filter((ar) =>
+          selectedRuleIds.has(ar.rule.id)
+        );
+
         modal.remove();
-        resolve("apply");
+        resolve({
+          action: "apply",
+          sanitizedText: currentSanitized,
+          appliedRules: selectedAppliedRules,
+        });
       } else if (action === "revert") {
         modal.remove();
-        resolve("revert");
+        resolve({ action: "revert" });
       } else if (
         action === "cancel" ||
         target.classList.contains(`${CSS_PREFIX}-modal-backdrop`)
       ) {
         modal.remove();
-        resolve("cancel");
+        resolve({ action: "cancel" });
       }
     });
   });
@@ -782,7 +1017,7 @@ function updateQuickActions(totalMatches: number): void {
 }
 
 function updateOverlayVisibility(totalMatches: number, hasText: boolean): void {
-  if (!shadowRoot) return;
+  if (!shadowRoot || !overlayRoot) return;
   const container = shadowRoot.querySelector<HTMLElement>(
     `.${CSS_PREFIX}-container`
   );
@@ -791,6 +1026,12 @@ function updateOverlayVisibility(totalMatches: number, hasText: boolean): void {
   );
   if (!container || !button) return;
 
+  // If user explicitly hid the overlay, don't show it
+  if (overlayHiddenByUser) {
+    overlayRoot.style.display = "none";
+    return;
+  }
+
   const overlayEnabled = settings?.showOverlay !== false;
   const mode = settings?.overlayMode ?? "smart";
   const shouldShow =
@@ -798,7 +1039,7 @@ function updateOverlayVisibility(totalMatches: number, hasText: boolean): void {
     (mode === "always" ||
       (mode === "smart" && (totalMatches > 0 || Boolean(replacementSession))));
 
-  container.style.display = shouldShow ? "block" : "none";
+  overlayRoot.style.display = shouldShow ? "block" : "none";
 
   if (!shouldShow) {
     return;
@@ -906,16 +1147,20 @@ function setupSubmitButtonListener(
     }
 
     // Show preview and confirm
-    const action = await showPreview(
+    const previewResult = await showPreview(
       text,
       result.sanitizedText,
       result.appliedRules
     );
 
-    if (action === "apply") {
-      handler.setInputText(result.sanitizedText);
+    if (
+      previewResult.action === "apply" &&
+      previewResult.sanitizedText &&
+      previewResult.appliedRules
+    ) {
+      handler.setInputText(previewResult.sanitizedText);
       showToast(
-        `Auto-sanitized! ${result.appliedRules.length} rule(s) applied`
+        `Auto-sanitized! ${previewResult.appliedRules.length} rule(s) applied`
       );
 
       // Re-trigger the click after a short delay to allow state to update
@@ -965,16 +1210,20 @@ function setupKeyboardShortcutListener(
       }
 
       // Show preview and confirm
-      const action = await showPreview(
+      const previewResult = await showPreview(
         text,
         result.sanitizedText,
         result.appliedRules
       );
 
-      if (action === "apply") {
-        handler.setInputText(result.sanitizedText);
+      if (
+        previewResult.action === "apply" &&
+        previewResult.sanitizedText &&
+        previewResult.appliedRules
+      ) {
+        handler.setInputText(previewResult.sanitizedText);
         showToast(
-          `Auto-sanitized! ${result.appliedRules.length} rule(s) applied`
+          `Auto-sanitized! ${previewResult.appliedRules.length} rule(s) applied`
         );
 
         // Trigger submit button click after delay
@@ -1432,14 +1681,85 @@ function getOverlayStyles(): string {
       text-decoration: line-through;
     }
 
-    .${CSS_PREFIX}-rules-applied ul {
-      margin: 0;
-      padding-left: 20px;
+    .${CSS_PREFIX}-rules-accordion {
+      margin-top: 16px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
     }
 
-    .${CSS_PREFIX}-rules-applied li {
-      margin: 4px 0;
-      color: #374151;
+    .${CSS_PREFIX}-rules-accordion-header {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      background: var(--muted);
+      border: none;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--foreground);
+      transition: background 0.15s ease;
+    }
+
+    .${CSS_PREFIX}-rules-accordion-header:hover {
+      background: color-mix(in oklch, var(--muted) 90%, var(--accent));
+    }
+
+    .${CSS_PREFIX}-accordion-icon {
+      transition: transform 0.2s ease;
+      flex-shrink: 0;
+    }
+
+    .${CSS_PREFIX}-rules-accordion-content {
+      padding: 12px 16px;
+      background: var(--background);
+      border-top: 1px solid var(--border);
+    }
+
+    .${CSS_PREFIX}-rules-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .${CSS_PREFIX}-rule-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.15s ease;
+    }
+
+    .${CSS_PREFIX}-rule-item:hover {
+      background: var(--muted);
+    }
+
+    .${CSS_PREFIX}-rule-item input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      cursor: pointer;
+      accent-color: var(--primary);
+      flex-shrink: 0;
+    }
+
+    .${CSS_PREFIX}-rule-name {
+      flex: 1;
+      font-size: 13px;
+      color: var(--foreground);
+      font-weight: 500;
+    }
+
+    .${CSS_PREFIX}-rule-count {
+      font-size: 12px;
+      color: var(--muted-foreground);
+      padding: 2px 8px;
+      background: var(--muted);
+      border-radius: 12px;
+      white-space: nowrap;
     }
 
     .${CSS_PREFIX}-modal-actions {
@@ -1508,8 +1828,31 @@ function getOverlayStyles(): string {
         background: color-mix(in oklch, var(--accent) 35%, var(--background));
       }
 
-      .${CSS_PREFIX}-rules-applied li {
+      .${CSS_PREFIX}-rules-accordion-header {
+        background: var(--muted);
         color: var(--foreground);
+      }
+
+      .${CSS_PREFIX}-rules-accordion-header:hover {
+        background: color-mix(in oklch, var(--muted) 90%, var(--accent));
+      }
+
+      .${CSS_PREFIX}-rules-accordion-content {
+        background: var(--background);
+        border-color: var(--border);
+      }
+
+      .${CSS_PREFIX}-rule-item:hover {
+        background: var(--muted);
+      }
+
+      .${CSS_PREFIX}-rule-name {
+        color: var(--foreground);
+      }
+
+      .${CSS_PREFIX}-rule-count {
+        color: var(--muted-foreground);
+        background: var(--muted);
       }
 
       .${CSS_PREFIX}-modal-actions {
