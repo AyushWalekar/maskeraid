@@ -16,24 +16,8 @@ let overlayRoot: HTMLDivElement | null = null;
 let shadowRoot: ShadowRoot | null = null;
 let isAutoSanitizing = false;
 let replacementSession: ReplacementSession | null = null;
-let overlayCollapsed = false;
 let overlayHiddenByUser = false;
 const currentHost = window.location.hostname;
-
-/**
- * Get extension URL for an asset
- */
-function getExtensionUrl(path: string): string {
-  if (
-    typeof chrome !== "undefined" &&
-    chrome.runtime &&
-    chrome.runtime.getURL
-  ) {
-    return chrome.runtime.getURL(path);
-  }
-  // Fallback for development/testing
-  return path;
-}
 
 /**
  * Initialize the content script
@@ -139,7 +123,6 @@ function createOverlay(handler: ReturnType<typeof getSiteHandler>) {
     shadowRoot = null;
   }
 
-  overlayCollapsed = false;
   overlayHiddenByUser = false;
 
   // Create container with Shadow DOM for style isolation
@@ -152,105 +135,114 @@ function createOverlay(handler: ReturnType<typeof getSiteHandler>) {
   styles.textContent = getOverlayStyles();
   shadowRoot.appendChild(styles);
 
-  // Create button container
+  // Create main container (Pill shape)
   const container = document.createElement("div");
   container.className = `${CSS_PREFIX}-container`;
   shadowRoot.appendChild(container);
 
-  // Create the mask button
-  const button = document.createElement("button");
-  button.className = `${CSS_PREFIX}-button`;
-  button.innerHTML = `
-    <img src="${getExtensionUrl(
-      "icons/icon32.png"
-    )}" alt="Mask" width="18" height="18" style="display: block;" />
-    <span class="${CSS_PREFIX}-text">Mask</span>
-    <span class="${CSS_PREFIX}-revert-indicator"></span>
-  `;
-  button.title = "Click to mask your prompt";
-  container.appendChild(button);
+  // --- Main Mask Button Section ---
+  const mainButton = document.createElement("button");
+  mainButton.className = `${CSS_PREFIX}-main-button`;
+  mainButton.title = "Click to mask your prompt";
 
-  // Close/collapse button
+  // Shield Icon SVG
+  mainButton.innerHTML = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${CSS_PREFIX}-icon-shield">
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+    </svg>
+    <span class="${CSS_PREFIX}-text">Mask</span>
+  `;
+  container.appendChild(mainButton);
+
+  // --- Actions Group (Separator + Count + Accept/Revert) ---
+  const actionsGroup = document.createElement("div");
+  actionsGroup.className = `${CSS_PREFIX}-actions-group`;
+  actionsGroup.style.display = "none"; // Hidden by default
+
+  // Separator 1
+  const sep1 = document.createElement("div");
+  sep1.className = `${CSS_PREFIX}-separator`;
+  actionsGroup.appendChild(sep1);
+
+  // Badge Count
+  const badgeCount = document.createElement("span");
+  badgeCount.className = `${CSS_PREFIX}-badge-count`;
+  badgeCount.textContent = "0";
+  actionsGroup.appendChild(badgeCount);
+
+  // Accept Button (Check)
+  const acceptButton = document.createElement("button");
+  acceptButton.className = `${CSS_PREFIX}-btn-icon ${CSS_PREFIX}-accept`;
+  acceptButton.type = "button";
+  acceptButton.title = "Apply Masking";
+  acceptButton.innerHTML = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M20 6 9 17l-5-5" />
+    </svg>
+  `;
+  actionsGroup.appendChild(acceptButton);
+
+  // Revert Button (Undo)
+  const revertButton = document.createElement("button");
+  revertButton.className = `${CSS_PREFIX}-btn-icon ${CSS_PREFIX}-revert`;
+  revertButton.type = "button";
+  revertButton.title = "Revert to Original";
+  revertButton.style.display = "none"; // Hidden by default
+  revertButton.innerHTML = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3 12l6-6v4h7a5 5 0 1 1 0 10h-2" />
+    </svg>
+  `;
+  actionsGroup.appendChild(revertButton);
+
+  container.appendChild(actionsGroup);
+
+  // --- Control Section (Separator + Close) ---
+  const controlGroup = document.createElement("div");
+  controlGroup.className = `${CSS_PREFIX}-control-group`;
+
+  // Separator 2
+  const sep2 = document.createElement("div");
+  sep2.className = `${CSS_PREFIX}-separator`;
+  controlGroup.appendChild(sep2);
+
+  // Close Button
   const closeButton = document.createElement("button");
-  closeButton.className = `${CSS_PREFIX}-close`;
+  closeButton.className = `${CSS_PREFIX}-btn-icon ${CSS_PREFIX}-close`;
   closeButton.type = "button";
   closeButton.title = "Hide overlay";
-  closeButton.setAttribute("aria-label", "Hide overlay");
-  // Using SVG for close button as it's a simple X icon
   closeButton.innerHTML = `
     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <path d="M18 6 6 18" />
       <path d="M6 6 18 18" />
     </svg>
   `;
-  container.appendChild(closeButton);
+  controlGroup.appendChild(closeButton);
 
-  // Mini collapsed button (shown when collapsed)
-  const miniButton = document.createElement("button");
-  miniButton.className = `${CSS_PREFIX}-mini`;
-  miniButton.type = "button";
-  miniButton.title = "Show mask button";
-  miniButton.setAttribute("aria-label", "Show mask button");
-  miniButton.innerHTML = `
-    <img src="${getExtensionUrl(
-      "icons/icon32.png"
-    )}" alt="Mask" width="18" height="18" style="display: block;" />
-  `;
-  container.appendChild(miniButton);
+  container.appendChild(controlGroup);
 
-  // Match count + quick-apply (accept) control
-  const badgeWrap = document.createElement("div");
-  badgeWrap.className = `${CSS_PREFIX}-badge-wrap`;
-  badgeWrap.style.display = "none";
+  // --- Event Listeners ---
 
-  const badgeCount = document.createElement("span");
-  badgeCount.className = `${CSS_PREFIX}-badge-count`;
-  badgeCount.style.display = "none";
-  badgeWrap.appendChild(badgeCount);
-
-  const acceptButton = document.createElement("button");
-  acceptButton.className = `${CSS_PREFIX}-quick ${CSS_PREFIX}-accept`;
-  acceptButton.type = "button";
-  acceptButton.setAttribute("aria-label", "Mask the text without preview");
-  acceptButton.dataset.tooltip = "Mask the text without preview";
-  acceptButton.innerHTML = `
-    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M20 6 9 17l-5-5" />
-    </svg>
-  `;
-  badgeWrap.appendChild(acceptButton);
-
-  const revertButton = document.createElement("button");
-  revertButton.className = `${CSS_PREFIX}-quick ${CSS_PREFIX}-revert`;
-  revertButton.type = "button";
-  revertButton.setAttribute("aria-label", "Revert to original text");
-  revertButton.dataset.tooltip = "Revert to original text";
-  revertButton.innerHTML = `
-    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M3 12l6-6v4h7a5 5 0 1 1 0 10h-2" />
-    </svg>
-  `;
-  badgeWrap.appendChild(revertButton);
-
-  container.appendChild(badgeWrap);
-
-  // Click handler for mask button
-  button.addEventListener("click", () => {
+  // Main Mask Button
+  mainButton.addEventListener("click", () => {
     handleSanitizeClick(handler);
   });
 
+  // Accept Action
   acceptButton.addEventListener("click", (e) => {
     e.preventDefault();
     e.stopPropagation();
     handleQuickApplyClick(handler);
   });
 
+  // Revert Action
   revertButton.addEventListener("click", (e) => {
     e.preventDefault();
     e.stopPropagation();
     handleQuickRevertClick(handler);
   });
 
+  // Close Action
   closeButton.addEventListener("click", (e) => {
     e.preventDefault();
     e.stopPropagation();
@@ -261,20 +253,13 @@ function createOverlay(handler: ReturnType<typeof getSiteHandler>) {
     showToast("Overlay hidden");
   });
 
-  miniButton.addEventListener("click", (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    overlayCollapsed = false;
-    updateOverlayPresentation();
-  });
-
-  // Make container draggable
-  setupDragAndDrop(container, button);
+  // Make container draggable via the main button area
+  setupDragAndDrop(container, mainButton);
 
   // Add to page
   document.body.appendChild(overlayRoot);
 
-  console.log("Maskeraid: Overlay added to DOM");
+  console.log("Maskeraid: Overlay added to DOM (New Design)");
 
   // Position near the textarea
   positionOverlay(handler);
@@ -480,13 +465,6 @@ function applySanitization(
 
   handler.setInputText(sanitizedText);
   showToast(`Masked! ${appliedRules.length} rule(s) applied`);
-
-  const revertIndicator = shadowRoot?.querySelector<HTMLElement>(
-    `.${CSS_PREFIX}-revert-indicator`
-  );
-  if (revertIndicator) {
-    revertIndicator.style.display = "block";
-  }
 
   updateQuickActions(0);
   updateOverlayVisibility(0, true);
@@ -857,14 +835,6 @@ function revertSanitization(handler: ReturnType<typeof getSiteHandler>) {
   handler.setInputText(replacementSession.originalText);
   replacementSession = null;
 
-  // Hide revert indicator
-  const revertIndicator = shadowRoot?.querySelector<HTMLElement>(
-    `.${CSS_PREFIX}-revert-indicator`
-  );
-  if (revertIndicator) {
-    revertIndicator.style.display = "none";
-  }
-
   showToast("Reverted to original text");
   updateQuickActions(0);
   updateBadge();
@@ -996,8 +966,8 @@ function hideBadge() {
 function updateQuickActions(totalMatches: number): void {
   if (!shadowRoot) return;
 
-  const badgeWrap = shadowRoot.querySelector<HTMLElement>(
-    `.${CSS_PREFIX}-badge-wrap`
+  const actionsGroup = shadowRoot.querySelector<HTMLElement>(
+    `.${CSS_PREFIX}-actions-group`
   );
   const badgeCount = shadowRoot.querySelector<HTMLElement>(
     `.${CSS_PREFIX}-badge-count`
@@ -1009,7 +979,7 @@ function updateQuickActions(totalMatches: number): void {
     `.${CSS_PREFIX}-revert`
   );
 
-  if (!badgeWrap || !badgeCount || !acceptButton || !revertButton) {
+  if (!actionsGroup || !badgeCount || !acceptButton || !revertButton) {
     return;
   }
 
@@ -1017,17 +987,19 @@ function updateQuickActions(totalMatches: number): void {
   const hasSession = Boolean(replacementSession);
 
   if (hasMatches) {
-    badgeCount.style.display = "inline";
+    badgeCount.style.display = "inline-flex";
     badgeCount.textContent = String(totalMatches);
   } else {
     badgeCount.style.display = "none";
     badgeCount.textContent = "";
   }
 
-  acceptButton.style.display = hasMatches && totalMatches > 1 ? "flex" : "none";
+  // Show accept if matches found (and typically > 0, but original logic was > 1, preserving for now or adjusting?)
+  // Let's make it > 0 to be more useful as a quick action in the new toolbar
+  acceptButton.style.display = hasMatches ? "flex" : "none";
   revertButton.style.display = hasSession ? "flex" : "none";
 
-  badgeWrap.style.display = hasMatches || hasSession ? "flex" : "none";
+  actionsGroup.style.display = hasMatches || hasSession ? "flex" : "none";
 }
 
 function updateOverlayVisibility(totalMatches: number, hasText: boolean): void {
@@ -1036,7 +1008,7 @@ function updateOverlayVisibility(totalMatches: number, hasText: boolean): void {
     `.${CSS_PREFIX}-container`
   );
   const button = shadowRoot.querySelector<HTMLButtonElement>(
-    `.${CSS_PREFIX}-button`
+    `.${CSS_PREFIX}-main-button`
   );
   if (!container || !button) return;
 
@@ -1062,31 +1034,6 @@ function updateOverlayVisibility(totalMatches: number, hasText: boolean): void {
   // Always keep the button clickable so users can re-open the review/revert flow
   // even after sanitization has already been applied.
   button.title = hasText ? "Click to mask your prompt" : "No text to mask";
-
-  updateOverlayPresentation();
-}
-
-function updateOverlayPresentation(): void {
-  if (!shadowRoot) return;
-  const button = shadowRoot.querySelector<HTMLElement>(`.${CSS_PREFIX}-button`);
-  const closeButton = shadowRoot.querySelector<HTMLElement>(
-    `.${CSS_PREFIX}-close`
-  );
-  const miniButton = shadowRoot.querySelector<HTMLElement>(
-    `.${CSS_PREFIX}-mini`
-  );
-
-  if (!button || !closeButton || !miniButton) return;
-
-  if (overlayCollapsed) {
-    button.style.display = "none";
-    closeButton.style.display = "none";
-    miniButton.style.display = "flex";
-  } else {
-    button.style.display = "flex";
-    closeButton.style.display = "flex";
-    miniButton.style.display = "none";
-  }
 }
 
 /**
@@ -1371,252 +1318,131 @@ function getOverlayStyles(): string {
 
     .${CSS_PREFIX}-container {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-      font-size: 14px;
+      font-size: 13px;
+      font-weight: 500;
       position: relative;
-      display: block;
+      display: inline-flex;
+      align-items: center;
+      background: var(--background);
+      color: var(--foreground);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 0;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1), 0 2px 4px rgba(0, 0, 0, 0.05);
+      transition: all 0.2s ease;
+      overflow: hidden;
     }
 
-    .${CSS_PREFIX}-container.${CSS_PREFIX}-draggable .${CSS_PREFIX}-button {
-      cursor: grab;
-    }
-
-    .${CSS_PREFIX}-container.${CSS_PREFIX}-draggable .${CSS_PREFIX}-button:active {
-      cursor: grabbing;
-    }
-
-    .${CSS_PREFIX}-button {
+    /* Main "Mask" Button */
+    .${CSS_PREFIX}-main-button {
       display: flex;
       align-items: center;
       gap: 6px;
-      padding: 8px 14px;
-      position: relative;
-      overflow: hidden;
-      background:
-        radial-gradient(140px 90px at 18% 10%, oklch(1 0 0 / 0.20), transparent 60%),
-        linear-gradient(
-          135deg,
-          color-mix(in oklch, var(--chart-1) 78%, var(--primary) 22%) 0%,
-          var(--chart-2) 45%,
-          var(--primary) 100%
-        );
-      background-size: 140% 140%;
-      background-position: 0% 0%;
-      color: var(--primary-foreground);
-      border: 1px solid color-mix(in oklch, var(--primary) 62%, black 22%);
-      border-radius: 8px;
-      cursor: pointer;
+      padding: 6px 10px 6px 10px;
+      background: transparent;
+      border: none;
+      color: var(--foreground);
+      cursor: grab;
       font-size: 13px;
-      font-weight: 500;
-      box-shadow: 0 8px 20px oklch(0 0 0 / 0.18);
-      transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease,
-        background-position 0.45s ease;
+      font-weight: 600;
+      transition: background 0.2s ease, color 0.2s ease;
+      height: 32px;
     }
 
-    .${CSS_PREFIX}-button img {
-      width: 18px;
-      height: 18px;
-      object-fit: contain;
-      flex-shrink: 0;
+    .${CSS_PREFIX}-main-button:hover {
+      background: var(--muted);
+      color: var(--primary);
     }
 
-    .${CSS_PREFIX}-button:hover {
-      transform: translateY(-1px);
-      box-shadow: 0 10px 24px oklch(0 0 0 / 0.22);
-      filter: brightness(1.02) saturate(1.05);
-      background-position: 100% 50%;
+    .${CSS_PREFIX}-main-button:active {
+      cursor: grabbing;
     }
 
-    .${CSS_PREFIX}-button:active {
-      transform: translateY(0);
-      filter: brightness(0.99) saturate(1.02);
-      background-position: 60% 40%;
+    .${CSS_PREFIX}-icon-shield {
+      width: 16px;
+      height: 16px;
+      color: var(--primary);
     }
 
-    .${CSS_PREFIX}-button:disabled {
-      opacity: 0.55;
-      cursor: not-allowed;
-      transform: none;
-      box-shadow: 0 6px 16px oklch(0 0 0 / 0.14);
+    .${CSS_PREFIX}-text {
+      white-space: nowrap;
     }
 
-    .${CSS_PREFIX}-close {
-      position: absolute;
-      top: -8px;
-      left: -8px;
-      width: 22px;
-      height: 22px;
+    /* Actions Group (Separator + Count + Accept/Revert) */
+    .${CSS_PREFIX}-actions-group {
       display: flex;
       align-items: center;
-      justify-content: center;
-      border-radius: 999px;
-      border: 1px solid var(--border);
-      background: var(--background);
-      color: var(--muted-foreground);
-      cursor: pointer;
-      box-shadow: 0 6px 16px oklch(0 0 0 / 0.14);
-      transition: transform 0.15s ease, box-shadow 0.15s ease;
+      height: 20px; /* Match separator height */
     }
 
-    .${CSS_PREFIX}-close:hover {
-      transform: translateY(-1px);
-      box-shadow: 0 8px 18px oklch(0 0 0 / 0.18);
-      color: var(--foreground);
-    }
-
-    .${CSS_PREFIX}-mini {
-      display: none;
+    /* Control Group (Separator + Close) */
+    .${CSS_PREFIX}-control-group {
+      display: flex;
       align-items: center;
-      justify-content: center;
-      width: 40px;
-      height: 40px;
-      position: relative;
-      overflow: hidden;
-      border-radius: 999px;
-      background:
-        radial-gradient(120px 80px at 22% 18%, oklch(1 0 0 / 0.18), transparent 62%),
-        linear-gradient(
-          135deg,
-          color-mix(in oklch, var(--chart-1) 78%, var(--primary) 22%) 0%,
-          var(--chart-2) 45%,
-          var(--primary) 100%
-        );
-      background-size: 140% 140%;
-      background-position: 0% 0%;
-      color: var(--primary-foreground);
-      cursor: pointer;
-      border: 1px solid color-mix(in oklch, var(--primary) 62%, black 22%);
-      box-shadow: 0 8px 20px oklch(0 0 0 / 0.18);
-      transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease,
-        background-position 0.45s ease;
+      height: 20px;
     }
 
-    .${CSS_PREFIX}-mini img {
-      width: 18px;
-      height: 18px;
-      object-fit: contain;
+    /* Separator */
+    .${CSS_PREFIX}-separator {
+      width: 1px;
+      height: 16px;
+      background: var(--border);
+      margin: 0 2px;
     }
 
-    .${CSS_PREFIX}-mini:hover {
-      transform: translateY(-1px);
-      box-shadow: 0 10px 24px oklch(0 0 0 / 0.22);
-      filter: brightness(1.02) saturate(1.05);
-      background-position: 100% 50%;
-    }
-
-    .${CSS_PREFIX}-badge-wrap {
-      position: absolute;
-      top: -6px;
-      right: -6px;
-      display: none;
-      align-items: center;
-      gap: 4px;
-      padding: 0 4px;
-      height: 22px;
-      border-radius: 999px;
-      background: color-mix(in oklch, var(--destructive) 88%, black 10%);
-      color: var(--destructive-foreground);
-      border: 1px solid color-mix(in oklch, var(--destructive) 55%, black 20%);
-      box-shadow: 0 6px 16px oklch(0 0 0 / 0.16);
-    }
-
+    /* Badge Count */
     .${CSS_PREFIX}-badge-count {
-      min-width: 14px;
-      text-align: center;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 18px;
+      height: 18px;
+      padding: 0 4px;
+      margin: 0 4px;
+      background: var(--primary);
+      color: var(--primary-foreground);
+      border-radius: 9px;
       font-size: 11px;
       font-weight: 700;
       line-height: 1;
-      padding: 0 2px;
-      user-select: none;
-      display: none;
     }
 
-    .${CSS_PREFIX}-quick {
-      width: 18px;
-      height: 18px;
-      display: none;
+    /* Icon Buttons (Accept, Revert, Close) */
+    .${CSS_PREFIX}-btn-icon {
+      display: flex;
       align-items: center;
       justify-content: center;
-      border-radius: 999px;
+      width: 28px;
+      height: 28px;
       border: none;
+      background: transparent;
+      color: var(--muted-foreground);
       cursor: pointer;
-      transition: transform 0.15s ease, background 0.15s ease;
+      border-radius: 50%;
+      transition: all 0.15s ease;
       padding: 0;
     }
 
-    .${CSS_PREFIX}-quick::after {
-      content: attr(data-tooltip);
-      position: absolute;
-      top: -32px;
-      right: 0;
-      transform: translateX(50%);
-      background: var(--foreground);
-      color: var(--background);
-      font-size: 11px;
-      line-height: 1;
-      padding: 4px 8px;
-      border-radius: 999px;
-      white-space: nowrap;
-      opacity: 0;
-      pointer-events: none;
-      transition: opacity 0.15s ease, transform 0.15s ease;
-      box-shadow: 0 8px 16px oklch(0 0 0 / 0.18);
-    }
-
-    .${CSS_PREFIX}-quick:hover::after {
-      opacity: 1;
-      transform: translateX(50%) translateY(-2px);
-    }
-
-    .${CSS_PREFIX}-accept,
-    .${CSS_PREFIX}-revert {
-      position: relative;
-    }
-
-    .${CSS_PREFIX}-accept {
-      background: color-mix(in oklch, var(--background) 25%, transparent);
-      color: var(--destructive-foreground);
+    .${CSS_PREFIX}-btn-icon:hover {
+      background: var(--muted);
+      color: var(--foreground);
     }
 
     .${CSS_PREFIX}-accept:hover {
-      transform: translateY(-1px);
-      background: color-mix(in oklch, var(--background) 38%, transparent);
-    }
-
-    .${CSS_PREFIX}-revert {
-      background: color-mix(in oklch, var(--accent) 25%, transparent);
-      color: var(--accent-foreground);
+      color: var(--primary);
+      background: color-mix(in oklch, var(--primary) 10%, transparent);
     }
 
     .${CSS_PREFIX}-revert:hover {
-      transform: translateY(-1px);
-      background: color-mix(in oklch, var(--accent) 40%, transparent);
+      color: var(--destructive);
+      background: color-mix(in oklch, var(--destructive) 10%, transparent);
     }
 
-    .${CSS_PREFIX}-revert-indicator {
-      display: none;
-      position: absolute;
-      top: -2px;
-      right: -2px;
-      width: 10px;
-      height: 10px;
-      background: #f59e0b;
-      border: 2px solid white;
-      border-radius: 50%;
-      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-      animation: pulse 2s infinite;
+    .${CSS_PREFIX}-close:hover {
+      color: var(--destructive);
     }
 
-    @keyframes pulse {
-      0%, 100% {
-        opacity: 1;
-        transform: scale(1);
-      }
-      50% {
-        opacity: 0.8;
-        transform: scale(1.1);
-      }
-    }
-
+    /* Toast */
     .${CSS_PREFIX}-toast {
       position: fixed;
       bottom: 24px;
@@ -1638,16 +1464,11 @@ function getOverlayStyles(): string {
     }
 
     @keyframes slideUp {
-      from {
-        opacity: 0;
-        transform: translateX(-50%) translateY(10px);
-      }
-      to {
-        opacity: 1;
-        transform: translateX(-50%) translateY(0);
-      }
+      from { opacity: 0; transform: translateX(-50%) translateY(10px); }
+      to { opacity: 1; transform: translateX(-50%) translateY(0); }
     }
 
+    /* Modal Styles (kept as is, but ensuring compatibility) */
     .${CSS_PREFIX}-modal {
       position: fixed;
       inset: 0;
