@@ -28,7 +28,7 @@ export const MESSAGE_TYPES = {
 /**
  * CSS class prefix for injected elements (avoid conflicts)
  */
-export const CSS_PREFIX = "pii-sanitizer";
+export const CSS_PREFIX = "pii-masker";
 
 /**
  * Z-index for overlay elements

@@ -1,20 +1,36 @@
-import { Button } from '@/components/ui/button';
-import { Switch } from '@/components/ui/switch';
-import { Label } from '@/components/ui/label';
-import { Separator } from '@/components/ui/separator';
-import { Badge } from '@/components/ui/badge';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
+import { Badge } from "@/components/ui/badge";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select';
-import type { ExtensionSettings, OverlayMode, SupportedSite } from '@/shared/types';
-import { storage } from '@/shared/storage';
-import { Download, Upload, ExternalLink, RotateCcw, Info, Trash2, RefreshCw } from 'lucide-react';
+} from "@/components/ui/select";
+import type {
+  ExtensionSettings,
+  OverlayMode,
+  SupportedSite,
+} from "@/shared/types";
+import { storage } from "@/shared/storage";
+import {
+  Download,
+  Upload,
+  ExternalLink,
+  RotateCcw,
+  Info,
+  Trash2,
+  RefreshCw,
+} from "lucide-react";
 
 interface SettingsProps {
   settings: ExtensionSettings;
@@ -22,9 +38,9 @@ interface SettingsProps {
 }
 
 const SITE_INFO: Record<SupportedSite, { name: string; url: string }> = {
-  chatgpt: { name: 'ChatGPT', url: 'https://chatgpt.com' },
-  claude: { name: 'Claude', url: 'https://claude.ai' },
-  gemini: { name: 'Gemini', url: 'https://gemini.google.com' },
+  chatgpt: { name: "ChatGPT", url: "https://chatgpt.com" },
+  claude: { name: "Claude", url: "https://claude.ai" },
+  gemini: { name: "Gemini", url: "https://gemini.google.com" },
 };
 
 export function Settings({ settings, onUpdate }: SettingsProps) {
@@ -37,19 +53,19 @@ export function Settings({ settings, onUpdate }: SettingsProps) {
 
   const handleExport = async () => {
     const json = await storage.exportRules();
-    const blob = new Blob([json], { type: 'application/json' });
+    const blob = new Blob([json], { type: "application/json" });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
+    const a = document.createElement("a");
     a.href = url;
-    a.download = 'prompt-sanitizer-rules.json';
+    a.download = "maskeraid-rules.json";
     a.click();
     URL.revokeObjectURL(url);
   };
 
   const handleImport = () => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.json';
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".json";
     input.onchange = async (e) => {
       const file = (e.target as HTMLInputElement).files?.[0];
       if (!file) return;
@@ -59,31 +75,41 @@ export function Settings({ settings, onUpdate }: SettingsProps) {
         const count = await storage.importRules(text, true);
         alert(`Successfully imported ${count} new rule(s)`);
       } catch {
-        alert('Failed to import: Invalid file format');
+        alert("Failed to import: Invalid file format");
       }
     };
     input.click();
   };
 
   const handleResetPositions = async () => {
-    if (confirm('Are you sure you want to reset all overlay button positions to default?')) {
+    if (
+      confirm(
+        "Are you sure you want to reset all overlay button positions to default?"
+      )
+    ) {
       await storage.resetAllOverlayPositions();
-      alert('All overlay positions have been reset');
+      alert("All overlay positions have been reset");
     }
   };
 
   const handleResetSettings = async () => {
-    if (confirm('Are you sure you want to reset all settings to default values?')) {
+    if (
+      confirm("Are you sure you want to reset all settings to default values?")
+    ) {
       await storage.resetSettings();
-      alert('All settings have been reset to default');
+      alert("All settings have been reset to default");
       window.location.reload();
     }
   };
 
   const handleDeleteAllRules = async () => {
-    if (confirm('Are you sure you want to delete all rules? This cannot be undone.')) {
+    if (
+      confirm(
+        "Are you sure you want to delete all rules? This cannot be undone."
+      )
+    ) {
       await storage.deleteAllRules();
-      alert('All rules have been deleted');
+      alert("All rules have been deleted");
       window.location.reload();
     }
   };
@@ -96,7 +122,7 @@ export function Settings({ settings, onUpdate }: SettingsProps) {
           <h3 className="font-medium mb-3">General</h3>
           <div className="space-y-4">
             <div className="flex items-center justify-between">
-              <Label>Auto-sanitize</Label>
+              <Label>Auto-mask</Label>
               <Switch
                 checked={settings.autoSanitize}
                 onCheckedChange={(checked) =>
@@ -125,7 +151,8 @@ export function Settings({ settings, onUpdate }: SettingsProps) {
                     </TooltipTrigger>
                     <TooltipContent>
                       <p className="max-w-[200px]">
-                        Smart: Only shows when PII is detected. Always: Always shows but disabled when nothing to sanitize.
+                        Smart: Only shows when PII is detected. Always: Always
+                        shows but disabled when nothing to mask.
                       </p>
                     </TooltipContent>
                   </Tooltip>
@@ -144,7 +171,7 @@ export function Settings({ settings, onUpdate }: SettingsProps) {
                       Smart (only when PII is detected)
                     </SelectItem>
                     <SelectItem value="always">
-                      Always show (disabled when nothing to sanitize)
+                      Always show (disabled when nothing to mask)
                     </SelectItem>
                   </SelectContent>
                 </Select>
@@ -245,7 +272,8 @@ export function Settings({ settings, onUpdate }: SettingsProps) {
               </TooltipTrigger>
               <TooltipContent>
                 <p className="max-w-[200px]">
-                  Reset all overlay button positions to default. You can also right-click the overlay button to reset for the current site.
+                  Reset all overlay button positions to default. You can also
+                  right-click the overlay button to reset for the current site.
                 </p>
               </TooltipContent>
             </Tooltip>
@@ -294,7 +322,7 @@ export function Settings({ settings, onUpdate }: SettingsProps) {
         <div>
           <h3 className="font-medium mb-2">About</h3>
           <div className="text-xs text-muted-foreground space-y-1">
-            <p>Prompt Sanitizer v1.0.0</p>
+            <p>Maskeraid v1.0.0</p>
             <p>Protect sensitive data before sending to LLMs</p>
           </div>
         </div>

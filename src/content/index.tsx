@@ -21,16 +21,31 @@ let overlayHiddenByUser = false;
 const currentHost = window.location.hostname;
 
 /**
+ * Get extension URL for an asset
+ */
+function getExtensionUrl(path: string): string {
+  if (
+    typeof chrome !== "undefined" &&
+    chrome.runtime &&
+    chrome.runtime.getURL
+  ) {
+    return chrome.runtime.getURL(path);
+  }
+  // Fallback for development/testing
+  return path;
+}
+
+/**
  * Initialize the content script
  */
 async function init() {
   const handler = getSiteHandler();
   if (!handler) {
-    console.log("Prompt Sanitizer: No handler for this site");
+    console.log("Maskeraid: No handler for this site");
     return;
   }
 
-  console.log(`Prompt Sanitizer: Initialized for ${handler.displayName}`);
+  console.log(`Maskeraid: Initialized for ${handler.displayName}`);
 
   // Load rules and settings
   [rules, settings] = await Promise.all([
@@ -38,11 +53,11 @@ async function init() {
     storage.getSettings(),
   ]);
 
-  console.log("Prompt Sanitizer: Settings loaded", settings);
+  console.log("Maskeraid: Settings loaded", settings);
 
   // Check if this site is enabled
   if (settings && !settings.enabledSites.includes(handler.siteName)) {
-    console.log(`Prompt Sanitizer: Disabled for ${handler.displayName}`);
+    console.log(`Maskeraid: Disabled for ${handler.displayName}`);
     return;
   }
 
@@ -54,7 +69,7 @@ async function init() {
     }
     if (changes.settings) {
       settings = changes.settings;
-      console.log("Prompt Sanitizer: Settings updated", changes.settings);
+      console.log("Maskeraid: Settings updated", changes.settings);
       // Re-setup auto-sanitize if setting changed
       if (changes.settings.autoSanitize !== undefined) {
         if (changes.settings.autoSanitize) {
@@ -83,7 +98,7 @@ async function init() {
     }
     if (changes.overlayPositions) {
       console.log(
-        "Prompt Sanitizer: Overlay positions updated",
+        "Maskeraid: Overlay positions updated",
         changes.overlayPositions
       );
       // Reposition overlay if the current host's position changed
@@ -98,7 +113,7 @@ async function init() {
 
   // Create overlay
   if (settings?.showOverlay !== false) {
-    console.log("Prompt Sanitizer: Creating overlay...");
+    console.log("Maskeraid: Creating overlay...");
     createOverlay(handler);
   }
 
@@ -142,17 +157,17 @@ function createOverlay(handler: ReturnType<typeof getSiteHandler>) {
   container.className = `${CSS_PREFIX}-container`;
   shadowRoot.appendChild(container);
 
-  // Create the sanitize button
+  // Create the mask button
   const button = document.createElement("button");
   button.className = `${CSS_PREFIX}-button`;
   button.innerHTML = `
-    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-    </svg>
-    <span class="${CSS_PREFIX}-text">Sanitize</span>
+    <img src="${getExtensionUrl(
+      "icons/icon32.png"
+    )}" alt="Mask" width="18" height="18" style="display: block;" />
+    <span class="${CSS_PREFIX}-text">Mask</span>
     <span class="${CSS_PREFIX}-revert-indicator"></span>
   `;
-  button.title = "Click to sanitize your prompt";
+  button.title = "Click to mask your prompt";
   container.appendChild(button);
 
   // Close/collapse button
@@ -161,6 +176,7 @@ function createOverlay(handler: ReturnType<typeof getSiteHandler>) {
   closeButton.type = "button";
   closeButton.title = "Hide overlay";
   closeButton.setAttribute("aria-label", "Hide overlay");
+  // Using SVG for close button as it's a simple X icon
   closeButton.innerHTML = `
     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <path d="M18 6 6 18" />
@@ -173,12 +189,12 @@ function createOverlay(handler: ReturnType<typeof getSiteHandler>) {
   const miniButton = document.createElement("button");
   miniButton.className = `${CSS_PREFIX}-mini`;
   miniButton.type = "button";
-  miniButton.title = "Show sanitize button";
-  miniButton.setAttribute("aria-label", "Show sanitize button");
+  miniButton.title = "Show mask button";
+  miniButton.setAttribute("aria-label", "Show mask button");
   miniButton.innerHTML = `
-    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-    </svg>
+    <img src="${getExtensionUrl(
+      "icons/icon32.png"
+    )}" alt="Mask" width="18" height="18" style="display: block;" />
   `;
   container.appendChild(miniButton);
 
@@ -195,8 +211,8 @@ function createOverlay(handler: ReturnType<typeof getSiteHandler>) {
   const acceptButton = document.createElement("button");
   acceptButton.className = `${CSS_PREFIX}-quick ${CSS_PREFIX}-accept`;
   acceptButton.type = "button";
-  acceptButton.setAttribute("aria-label", "Apply changes without preview");
-  acceptButton.dataset.tooltip = "Apply changes without preview";
+  acceptButton.setAttribute("aria-label", "Mask the text without preview");
+  acceptButton.dataset.tooltip = "Mask the text without preview";
   acceptButton.innerHTML = `
     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <path d="M20 6 9 17l-5-5" />
@@ -218,7 +234,7 @@ function createOverlay(handler: ReturnType<typeof getSiteHandler>) {
 
   container.appendChild(badgeWrap);
 
-  // Click handler for sanitize button
+  // Click handler for mask button
   button.addEventListener("click", () => {
     handleSanitizeClick(handler);
   });
@@ -258,7 +274,7 @@ function createOverlay(handler: ReturnType<typeof getSiteHandler>) {
   // Add to page
   document.body.appendChild(overlayRoot);
 
-  console.log("Prompt Sanitizer: Overlay added to DOM");
+  console.log("Maskeraid: Overlay added to DOM");
 
   // Position near the textarea
   positionOverlay(handler);
@@ -298,7 +314,7 @@ function createOverlay(handler: ReturnType<typeof getSiteHandler>) {
  */
 async function positionOverlay(handler: ReturnType<typeof getSiteHandler>) {
   if (!overlayRoot || !shadowRoot || !handler) {
-    console.log("Prompt Sanitizer: Cannot position - missing elements");
+    console.log("Maskeraid: Cannot position - missing elements");
     return;
   }
 
@@ -310,7 +326,7 @@ async function positionOverlay(handler: ReturnType<typeof getSiteHandler>) {
   // Check if we have a saved position for this host
   const savedPosition = await storage.getOverlayPosition(currentHost);
   if (savedPosition) {
-    console.log("Prompt Sanitizer: Using saved position", savedPosition);
+    console.log("Maskeraid: Using saved position", savedPosition);
     container.style.position = "fixed";
     container.style.top = `${savedPosition.top}px`;
     container.style.right = `${savedPosition.right}px`;
@@ -321,7 +337,7 @@ async function positionOverlay(handler: ReturnType<typeof getSiteHandler>) {
 
   const anchor = handler.getOverlayAnchor();
   if (!anchor) {
-    console.log("Prompt Sanitizer: Anchor element not found, retrying...");
+    console.log("Maskeraid: Anchor element not found, retrying...");
     // Set a default visible position so it's not invisible
     container.style.position = "fixed";
     container.style.top = "100px";
@@ -332,7 +348,7 @@ async function positionOverlay(handler: ReturnType<typeof getSiteHandler>) {
 
   const rect = anchor.getBoundingClientRect();
 
-  console.log("Prompt Sanitizer: Positioning overlay at", {
+  console.log("Maskeraid: Positioning overlay at", {
     top: rect.top,
     right: rect.right,
   });
@@ -356,7 +372,7 @@ async function handleSanitizeClick(handler: ReturnType<typeof getSiteHandler>) {
 
   const text = handler.getInputText();
   if (!text.trim()) {
-    showToast("No text to sanitize");
+    showToast("No text to mask");
     return;
   }
 
@@ -411,7 +427,7 @@ async function handleQuickApplyClick(
 
   const text = handler.getInputText();
   if (!text.trim()) {
-    showToast("No text to sanitize");
+    showToast("No text to mask");
     return;
   }
 
@@ -463,7 +479,7 @@ function applySanitization(
   };
 
   handler.setInputText(sanitizedText);
-  showToast(`Sanitized! ${appliedRules.length} rule(s) applied`);
+  showToast(`Masked! ${appliedRules.length} rule(s) applied`);
 
   const revertIndicator = shadowRoot?.querySelector<HTMLElement>(
     `.${CSS_PREFIX}-revert-indicator`
@@ -553,7 +569,7 @@ function showPreview(
       modal.innerHTML = `
         <div class="${CSS_PREFIX}-modal-backdrop"></div>
         <div class="${CSS_PREFIX}-modal-content">
-          <h3>Sanitization Preview</h3>
+          <h3>Mask Preview</h3>
           <div class="${CSS_PREFIX}-modal-body">
             <div class="${CSS_PREFIX}-diff">
               <div class="${CSS_PREFIX}-diff-panel">
@@ -561,7 +577,7 @@ function showPreview(
                 <pre class="${CSS_PREFIX}-diff-text">${diffColumns.originalHtml}</pre>
               </div>
               <div class="${CSS_PREFIX}-diff-panel ${CSS_PREFIX}-diff-sanitized">
-                <h4>Sanitized</h4>
+                <h4>Masked</h4>
                 <pre class="${CSS_PREFIX}-diff-text">${diffColumns.sanitizedHtml}</pre>
               </div>
             </div>
@@ -646,9 +662,7 @@ function showPreview(
     modal.innerHTML = `
       <div class="${CSS_PREFIX}-modal-backdrop"></div>
       <div class="${CSS_PREFIX}-modal-content">
-        <h3>${
-          showRevertOption ? "Review Sanitization" : "Sanitization Preview"
-        }</h3>
+        <h3>${showRevertOption ? "Review Masking" : "Mask Preview"}</h3>
         <div class="${CSS_PREFIX}-modal-body">
           <div class="${CSS_PREFIX}-diff">
             <div class="${CSS_PREFIX}-diff-panel">
@@ -658,7 +672,7 @@ function showPreview(
     }</pre>
             </div>
             <div class="${CSS_PREFIX}-diff-panel ${CSS_PREFIX}-diff-sanitized">
-              <h4>Sanitized</h4>
+              <h4>Masked</h4>
               <pre class="${CSS_PREFIX}-diff-text">${
       diffColumns.sanitizedHtml
     }</pre>
@@ -832,11 +846,11 @@ function renderDiffColumns(
 }
 
 /**
- * Revert the last sanitization
+ * Revert the last masking
  */
 function revertSanitization(handler: ReturnType<typeof getSiteHandler>) {
   if (!handler || !replacementSession) {
-    showToast("No sanitization to revert");
+    showToast("No masking to revert");
     return;
   }
 
@@ -907,7 +921,7 @@ function setupDragAndDrop(container: HTMLElement, button: HTMLElement) {
       top: newTop,
       right: newRight,
     });
-    console.log("Prompt Sanitizer: Position saved", {
+    console.log("Maskeraid: Position saved", {
       top: newTop,
       right: newRight,
     });
@@ -1047,9 +1061,7 @@ function updateOverlayVisibility(totalMatches: number, hasText: boolean): void {
 
   // Always keep the button clickable so users can re-open the review/revert flow
   // even after sanitization has already been applied.
-  button.title = hasText
-    ? "Click to sanitize your prompt"
-    : "No text to sanitize";
+  button.title = hasText ? "Click to mask your prompt" : "No text to mask";
 
   updateOverlayPresentation();
 }
@@ -1132,7 +1144,7 @@ function setupSubmitButtonListener(
 
     const text = handler.getInputText();
     if (!text.trim()) {
-      showToast("No text to sanitize");
+      showToast("No text to mask");
       isAutoSanitizing = false;
       return;
     }
@@ -1160,7 +1172,7 @@ function setupSubmitButtonListener(
     ) {
       handler.setInputText(previewResult.sanitizedText);
       showToast(
-        `Auto-sanitized! ${previewResult.appliedRules.length} rule(s) applied`
+        `Auto-masked! ${previewResult.appliedRules.length} rule(s) applied`
       );
 
       // Re-trigger the click after a short delay to allow state to update
@@ -1198,7 +1210,7 @@ function setupKeyboardShortcutListener(
 
       const text = handler.getInputText();
       if (!text.trim()) {
-        showToast("No text to sanitize");
+        showToast("No text to mask");
         return;
       }
 
@@ -1223,7 +1235,7 @@ function setupKeyboardShortcutListener(
       ) {
         handler.setInputText(previewResult.sanitizedText);
         showToast(
-          `Auto-sanitized! ${previewResult.appliedRules.length} rule(s) applied`
+          `Auto-masked! ${previewResult.appliedRules.length} rule(s) applied`
         );
 
         // Trigger submit button click after delay
@@ -1324,6 +1336,7 @@ function getOverlayStyles(): string {
       --primary-foreground: oklch(1 0 0);
       --secondary: oklch(0.96 0.02 147.54);
       --secondary-foreground: oklch(0.43 0.12 144.33);
+      --chart-1: oklch(0.67 0.16 144.06);
       --chart-2: oklch(0.58 0.14 144.14);
       --accent: oklch(0.9 0.05 146.01);
       --accent-foreground: oklch(0.43 0.12 144.33);
@@ -1343,6 +1356,7 @@ function getOverlayStyles(): string {
         --primary-foreground: oklch(0.22 0.05 145.19);
         --secondary: oklch(0.39 0.03 143.09);
         --secondary-foreground: oklch(0.9 0.02 142.94);
+        --chart-1: oklch(0.77 0.12 145.23);
         --chart-2: oklch(0.72 0.14 144.92);
         --accent: oklch(0.58 0.14 144.14);
         --accent-foreground: oklch(0.94 0.01 72.65);
@@ -1375,24 +1389,47 @@ function getOverlayStyles(): string {
       align-items: center;
       gap: 6px;
       padding: 8px 14px;
-      background: linear-gradient(135deg, var(--primary) 0%, var(--chart-2) 100%);
+      position: relative;
+      overflow: hidden;
+      background:
+        radial-gradient(140px 90px at 18% 10%, oklch(1 0 0 / 0.20), transparent 60%),
+        linear-gradient(
+          135deg,
+          color-mix(in oklch, var(--chart-1) 78%, var(--primary) 22%) 0%,
+          var(--chart-2) 45%,
+          var(--primary) 100%
+        );
+      background-size: 140% 140%;
+      background-position: 0% 0%;
       color: var(--primary-foreground);
-      border: none;
+      border: 1px solid color-mix(in oklch, var(--primary) 62%, black 22%);
       border-radius: 8px;
       cursor: pointer;
       font-size: 13px;
       font-weight: 500;
       box-shadow: 0 8px 20px oklch(0 0 0 / 0.18);
-      transition: all 0.2s ease;
+      transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease,
+        background-position 0.45s ease;
+    }
+
+    .${CSS_PREFIX}-button img {
+      width: 18px;
+      height: 18px;
+      object-fit: contain;
+      flex-shrink: 0;
     }
 
     .${CSS_PREFIX}-button:hover {
       transform: translateY(-1px);
       box-shadow: 0 10px 24px oklch(0 0 0 / 0.22);
+      filter: brightness(1.02) saturate(1.05);
+      background-position: 100% 50%;
     }
 
     .${CSS_PREFIX}-button:active {
       transform: translateY(0);
+      filter: brightness(0.99) saturate(1.02);
+      background-position: 60% 40%;
     }
 
     .${CSS_PREFIX}-button:disabled {
@@ -1432,18 +1469,38 @@ function getOverlayStyles(): string {
       justify-content: center;
       width: 40px;
       height: 40px;
-      border: none;
+      position: relative;
+      overflow: hidden;
       border-radius: 999px;
-      background: linear-gradient(135deg, var(--primary) 0%, var(--chart-2) 100%);
+      background:
+        radial-gradient(120px 80px at 22% 18%, oklch(1 0 0 / 0.18), transparent 62%),
+        linear-gradient(
+          135deg,
+          color-mix(in oklch, var(--chart-1) 78%, var(--primary) 22%) 0%,
+          var(--chart-2) 45%,
+          var(--primary) 100%
+        );
+      background-size: 140% 140%;
+      background-position: 0% 0%;
       color: var(--primary-foreground);
       cursor: pointer;
+      border: 1px solid color-mix(in oklch, var(--primary) 62%, black 22%);
       box-shadow: 0 8px 20px oklch(0 0 0 / 0.18);
-      transition: transform 0.2s ease, box-shadow 0.2s ease;
+      transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease,
+        background-position 0.45s ease;
+    }
+
+    .${CSS_PREFIX}-mini img {
+      width: 18px;
+      height: 18px;
+      object-fit: contain;
     }
 
     .${CSS_PREFIX}-mini:hover {
       transform: translateY(-1px);
       box-shadow: 0 10px 24px oklch(0 0 0 / 0.22);
+      filter: brightness(1.02) saturate(1.05);
+      background-position: 100% 50%;
     }
 
     .${CSS_PREFIX}-badge-wrap {
@@ -1781,13 +1838,24 @@ function getOverlayStyles(): string {
     }
 
     .${CSS_PREFIX}-btn-primary {
-      background: linear-gradient(135deg, var(--primary) 0%, var(--chart-2) 100%);
+      background:
+        radial-gradient(140px 90px at 18% 10%, oklch(1 0 0 / 0.18), transparent 60%),
+        linear-gradient(
+          135deg,
+          color-mix(in oklch, var(--chart-1) 78%, var(--primary) 22%) 0%,
+          var(--chart-2) 45%,
+          var(--primary) 100%
+        );
+      background-size: 140% 140%;
+      background-position: 0% 0%;
       color: var(--primary-foreground);
-      border: none;
+      border: 1px solid color-mix(in oklch, var(--primary) 62%, black 22%);
     }
 
     .${CSS_PREFIX}-btn-primary:hover {
       box-shadow: 0 10px 24px oklch(0 0 0 / 0.22);
+      filter: brightness(1.02) saturate(1.05);
+      background-position: 100% 50%;
     }
 
     .${CSS_PREFIX}-btn-secondary {
