@@ -151,6 +151,10 @@ The `dist/` folder contains:
 - ✅ **Persistent Storage** - Rules and settings saved locally
 - ✅ **Type-safe** - Full TypeScript support
 
+## Credits
+
+- **Name suggestion**: The creative name "Maskeraid" was suggested by [@datarat23](https://github.com/datarat23)
+
 ## License
 
 Private project - All rights reserved
