@@ -368,7 +368,7 @@ export function Settings({ settings, onUpdate }: SettingsProps) {
         <div>
           <h3 className="font-medium mb-2">About</h3>
           <div className="text-xs text-muted-foreground space-y-1">
-            <p>Maskeraid v1.0.0</p>
+            <p>Maskeraid v1.0.1</p>
             <p>Protect sensitive data before sending to LLMs</p>
             <a
               href="https://github.com/AyushWalekar/maskeraid"
