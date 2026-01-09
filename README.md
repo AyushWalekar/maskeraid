@@ -17,9 +17,21 @@ Maskeraid protects your privacy by automatically applying custom sanitization ru
 
 The extension works seamlessly on:
 
-- **ChatGPT** (chat.openai.com, chatgpt.com)
-- **Claude** (claude.ai)
-- **Gemini** (gemini.google.com)
+- **ChatGPT** ([chat.openai.com](https://chat.openai.com), [chatgpt.com](https://chatgpt.com))
+- **Claude** ([claude.ai](https://claude.ai))
+- **Gemini** ([gemini.google.com](https://gemini.google.com))
+- **Huggingface Chat** ([huggingface.co/chat](https://huggingface.co/chat))
+
+Upcoming support for more LLM platforms!
+
+- **Perplexity AI** ([perplexity.ai](https://perplexity.ai))
+- **Microsoft Copilot** ([copilot.microsoft.com](https://copilot.microsoft.com))
+- **T3 Chat** ([t3.chat](https://t3.chat))
+- **Z AI Chat** ([chat.z.ai](https://chat.z.ai))
+
+and more...
+
+Feel free to raise issues or contribute!
 
 ![Mask Preview](public/demo/claude_demo_mask_preview.png)
 
