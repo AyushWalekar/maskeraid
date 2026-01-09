@@ -51,8 +51,14 @@ export class ChatGPTHandler extends BaseSiteHandler {
       // Clear existing content
       textarea.innerHTML = "";
 
-      // Set new content
-      textarea.innerText = text;
+      // Handle multi-line text by inserting paragraphs (like Claude)
+      // Using innerText directly causes extra newlines in ProseMirror editors
+      const lines = text.split("\n");
+      lines.forEach((line) => {
+        const p = document.createElement("p");
+        p.textContent = line || "\u200B"; // Zero-width space for empty lines
+        textarea.appendChild(p);
+      });
 
       // Move cursor to end
       const range = document.createRange();

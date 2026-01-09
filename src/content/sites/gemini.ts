@@ -53,16 +53,17 @@ export class GeminiHandler extends BaseSiteHandler {
     if (textarea.getAttribute("contenteditable") === "true") {
       textarea.focus();
 
-      // Gemini uses a custom editor, so we need to be careful
-      // Try using execCommand first for better compatibility
-      document.execCommand("selectAll", false);
-      document.execCommand("delete", false);
-      document.execCommand("insertText", false, text);
+      // Clear existing content
+      textarea.innerHTML = "";
 
-      // Fallback if execCommand didn't work
-      if (!textarea.innerText || textarea.innerText.trim() !== text.trim()) {
-        textarea.innerText = text;
-      }
+      // Handle multi-line text by inserting paragraphs (like Claude)
+      // Using execCommand or innerText directly causes extra newlines
+      const lines = text.split("\n");
+      lines.forEach((line) => {
+        const p = document.createElement("p");
+        p.textContent = line || "\u200B"; // Zero-width space for empty lines
+        textarea.appendChild(p);
+      });
 
       // Move cursor to end
       const range = document.createRange();
