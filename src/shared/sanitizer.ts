@@ -145,37 +145,44 @@ function applyRule(
       return { newText: text, matches: [], replacementMap: {} };
     }
   } else {
-    // Literal string replacement (case-sensitive, global)
-    console.log("[APPLY_RULE] Using literal replacement");
+    // Literal string replacement (case-insensitive, global)
+    console.log("[APPLY_RULE] Using literal replacement (case-insensitive)");
     console.log("[APPLY_RULE] Pattern to find:", JSON.stringify(rule.pattern));
     console.log("[APPLY_RULE] Replacement string:", rule.replacement);
 
     let newText = text;
+    const lowerText = text.toLowerCase();
+    const lowerPattern = rule.pattern.toLowerCase();
     let index = 0;
+    const matchedValues: string[] = [];
 
-    while ((index = newText.indexOf(rule.pattern, index)) !== -1) {
-      matches.push(rule.pattern);
-      console.log("[APPLY_RULE] Found pattern at index:", index);
+    // Find all matches (case-insensitive) and capture the actual matched text
+    while ((index = lowerText.indexOf(lowerPattern, index)) !== -1) {
+      const actualMatch = text.substring(index, index + rule.pattern.length);
+      matches.push(actualMatch);
+      matchedValues.push(actualMatch);
+      console.log("[APPLY_RULE] Found pattern at index:", index, "actual match:", JSON.stringify(actualMatch));
       index += rule.pattern.length;
     }
 
     console.log("[APPLY_RULE] Total matches found:", matches.length);
 
-    // For literal replacement, all matches are the same value
-    if (matches.length > 0) {
-      const indexedReplacement = `${rule.replacement}_1`;
-      replacementMap[rule.pattern] = indexedReplacement;
-      console.log("[APPLY_RULE] Indexed replacement:", indexedReplacement);
-      console.log("[APPLY_RULE] Text BEFORE split/join:", JSON.stringify(text));
-      console.log(
-        "[APPLY_RULE] Split by pattern:",
-        JSON.stringify(text.split(rule.pattern))
-      );
-      newText = text.split(rule.pattern).join(indexedReplacement);
-      console.log(
-        "[APPLY_RULE] Text AFTER split/join:",
-        JSON.stringify(newText)
-      );
+    // Get distinct matched values (preserving original case)
+    const distinctValues = [...new Set(matchedValues)];
+    console.log("[APPLY_RULE] Distinct values:", JSON.stringify(distinctValues));
+
+    // Replace each distinct value with indexed replacement
+    if (distinctValues.length > 0) {
+      distinctValues.forEach((value, idx) => {
+        const indexedReplacement = `${rule.replacement}_${idx + 1}`;
+        replacementMap[value] = indexedReplacement;
+        console.log("[APPLY_RULE] Replacing:", JSON.stringify(value), "with:", indexedReplacement);
+
+        // Use case-insensitive regex to replace all occurrences of this specific case variant
+        const valueRegex = new RegExp(escapeRegExp(value), "g");
+        newText = newText.replace(valueRegex, indexedReplacement);
+      });
+      console.log("[APPLY_RULE] Text AFTER replacement:", JSON.stringify(newText));
     }
 
     return { newText, matches, replacementMap };
@@ -241,9 +248,14 @@ export function testPattern(
       // Invalid regex
     }
   } else {
+    // Case-insensitive literal matching
+    const lowerText = text.toLowerCase();
+    const lowerPattern = pattern.toLowerCase();
     let index = 0;
-    while ((index = text.indexOf(pattern, index)) !== -1) {
-      matches.push(pattern);
+    while ((index = lowerText.indexOf(lowerPattern, index)) !== -1) {
+      // Capture the actual matched text (with original case)
+      const actualMatch = text.substring(index, index + pattern.length);
+      matches.push(actualMatch);
       index += pattern.length;
     }
   }
@@ -264,7 +276,7 @@ export const COMMON_PATTERNS = {
     category: "PII",
   },
   phone: {
-    name: "Phone Numbers (US)",
+    name: "Phone Numbers",
     pattern: "\\b(?:\\+1[-.]?)?\\(?\\d{3}\\)?[-.]?\\d{3}[-.]?\\d{4}\\b",
     replacement: "[PHONE]",
     isRegex: true,

@@ -41,7 +41,10 @@ export const OVERLAY_Z_INDEX = 2147483647;
  * Default system rules for PII masking
  * These rules are enabled by default on first install
  */
-export const DEFAULT_RULES: Omit<SanitizationRule, "createdAt" | "updatedAt">[] = [
+export const DEFAULT_RULES: Omit<
+  SanitizationRule,
+  "createdAt" | "updatedAt"
+>[] = [
   {
     id: "sys-email",
     name: "Email Addresses",
@@ -55,7 +58,7 @@ export const DEFAULT_RULES: Omit<SanitizationRule, "createdAt" | "updatedAt">[] 
   },
   {
     id: "sys-phone",
-    name: "Phone Numbers (US)",
+    name: "Phone Numbers",
     pattern: "\\b(?:\\+1[-.]?)?\\(?\\d{3}\\)?[-.]?\\d{3}[-.]?\\d{4}\\b",
     replacement: "[PHONE]",
     isRegex: true,

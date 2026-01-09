@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Maskeraid – Mask data before sending to LLMs",
+  "name": "Maskeraid – Detect & Mask data before sending to LLMs",
   "version": "1.0.0",
-  "description": "Maskeraid - Mask and sanitize your data(prompts/messages) before sending to LLMs by applying custom string/regex replacement rules",
+  "description": "Maskeraid - Detect, mask and sanitize your data(prompts/messages) before sending to LLMs by applying custom string/regex replacement rules",
   "permissions": ["storage", "activeTab"],
   "host_permissions": [
     "https://chat.openai.com/*",
