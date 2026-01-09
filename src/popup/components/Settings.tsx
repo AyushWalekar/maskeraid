@@ -94,9 +94,12 @@ export function Settings({ settings, onUpdate }: SettingsProps) {
 
   const handleResetSettings = async () => {
     if (
-      confirm("Are you sure you want to reset all settings to default values?")
+      confirm(
+        "Are you sure you want to reset all settings to default values? This will also restore default PII masking rules."
+      )
     ) {
       await storage.resetSettings();
+      await storage.resetRules();
       alert("All settings have been reset to default");
       window.location.reload();
     }

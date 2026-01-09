@@ -19,7 +19,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import type { SanitizationRule } from '@/shared/types';
-import { Pencil, Trash2, Plus, Code, Type, Search, X } from 'lucide-react';
+import { Pencil, Trash2, Plus, Code, Type, Search, X, RefreshCw } from 'lucide-react';
 import { trimStringSafe } from '@/lib/formatUtils';
 
 interface RuleListProps {
@@ -31,6 +31,7 @@ interface RuleListProps {
   onEdit: (rule: SanitizationRule) => void;
   onDelete: (id: string) => void;
   onToggle: (id: string) => void;
+  onLoadDefaults?: () => void;
 }
 
 export function RuleList({
@@ -42,6 +43,7 @@ export function RuleList({
   onEdit,
   onDelete,
   onToggle,
+  onLoadDefaults,
 }: RuleListProps) {
   const [ruleToDelete, setRuleToDelete] = useState<SanitizationRule | null>(null);
 
@@ -70,7 +72,7 @@ export function RuleList({
             <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
           </svg>
         </div>
-        <h3 className="font-medium mb-1">No sanitization rules yet</h3>
+        <h3 className="font-medium mb-1">No masking rules yet</h3>
         <p className="text-sm text-muted-foreground mb-4">
           Create rules to automatically redact sensitive information
         </p>
@@ -78,6 +80,12 @@ export function RuleList({
           <Plus className="w-4 h-4 mr-1" />
           Add Your First Rule
         </Button>
+        {onLoadDefaults && (
+          <Button onClick={onLoadDefaults} variant="outline" size="sm" className="mt-2">
+            <RefreshCw className="w-4 h-4 mr-1" />
+            Load Default Rules
+          </Button>
+        )}
       </div>
     );
   }
@@ -178,6 +186,11 @@ export function RuleList({
                         {rule.category && (
                           <Badge variant="secondary" className="shrink-0 h-5 text-[10px]">
                             {rule.category}
+                          </Badge>
+                        )}
+                        {rule.isSystem && (
+                          <Badge variant="outline" className="shrink-0 h-5 text-[10px] text-muted-foreground">
+                            System
                           </Badge>
                         )}
                       </div>

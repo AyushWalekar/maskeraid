@@ -59,6 +59,10 @@ function App() {
     await storage.toggleRule(id);
   };
 
+  const handleLoadDefaults = async () => {
+    await storage.resetRules();
+  };
+
   const handleSaveRule = async (
     ruleData: Omit<SanitizationRule, "id" | "createdAt" | "updatedAt">
   ) => {
@@ -140,6 +144,7 @@ function App() {
             onEdit={handleEditRule}
             onDelete={handleDeleteRule}
             onToggle={handleToggleRule}
+            onLoadDefaults={handleLoadDefaults}
           />
         </TabsContent>
 

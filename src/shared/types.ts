@@ -11,6 +11,7 @@ export interface SanitizationRule {
   flags?: string;
   enabled: boolean;
   category?: string;
+  isSystem?: boolean;
   createdAt: number;
   updatedAt: number;
 }

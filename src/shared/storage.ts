@@ -6,6 +6,7 @@ import type {
   OverlayPosition,
 } from "./types";
 import { DEFAULT_SETTINGS as defaultSettings } from "./types";
+import { DEFAULT_RULES } from "./constants";
 
 type StorageChangeCallback = (changes: {
   rules?: SanitizationRule[];
@@ -47,7 +48,27 @@ class StorageService {
    */
   async getRules(): Promise<SanitizationRule[]> {
     const data = await this.get(["rules"]);
-    return data.rules || [];
+    const rules = data.rules || [];
+
+    if (rules.length === 0) {
+      return this.initializeDefaultRules();
+    }
+
+    return rules;
+  }
+
+  /**
+   * Initialize default system rules
+   */
+  private async initializeDefaultRules(): Promise<SanitizationRule[]> {
+    const now = Date.now();
+    const defaultRules: SanitizationRule[] = DEFAULT_RULES.map((rule) => ({
+      ...rule,
+      createdAt: now,
+      updatedAt: now,
+    }));
+    await this.set({ rules: defaultRules });
+    return defaultRules;
   }
 
   /**
@@ -252,6 +273,13 @@ class StorageService {
    */
   async resetSettings(): Promise<void> {
     await this.set({ settings: defaultSettings });
+  }
+
+  /**
+   * Reset rules to default system rules
+   */
+  async resetRules(): Promise<void> {
+    await this.initializeDefaultRules();
   }
 
   private remove(keys: string[]): Promise<void> {
