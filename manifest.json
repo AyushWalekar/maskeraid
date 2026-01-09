@@ -8,7 +8,15 @@
     "https://chat.openai.com/*",
     "https://chatgpt.com/*",
     "https://claude.ai/*",
-    "https://gemini.google.com/*"
+    "https://gemini.google.com/*",
+    "https://perplexity.ai/*",
+    "https://www.perplexity.ai/*",
+    "https://notion.so/*",
+    "https://www.notion.so/*",
+    "https://huggingface.co/*",
+    "https://www.huggingface.co/*",
+    "https://copilot.microsoft.com/*",
+    "https://www.bing.com/*"
   ],
   "action": {
     "default_popup": "index.html",
@@ -31,7 +39,15 @@
         "https://chat.openai.com/*",
         "https://chatgpt.com/*",
         "https://claude.ai/*",
-        "https://gemini.google.com/*"
+        "https://gemini.google.com/*",
+        "https://perplexity.ai/*",
+        "https://www.perplexity.ai/*",
+        "https://notion.so/*",
+        "https://www.notion.so/*",
+        "https://huggingface.co/*",
+        "https://www.huggingface.co/*",
+        "https://copilot.microsoft.com/*",
+        "https://www.bing.com/*"
       ],
       "js": ["content.js"],
       "run_at": "document_idle"
@@ -48,7 +64,15 @@
         "https://chat.openai.com/*",
         "https://chatgpt.com/*",
         "https://claude.ai/*",
-        "https://gemini.google.com/*"
+        "https://gemini.google.com/*",
+        "https://perplexity.ai/*",
+        "https://www.perplexity.ai/*",
+        "https://notion.so/*",
+        "https://www.notion.so/*",
+        "https://huggingface.co/*",
+        "https://www.huggingface.co/*",
+        "https://copilot.microsoft.com/*",
+        "https://www.bing.com/*"
       ]
     }
   ]

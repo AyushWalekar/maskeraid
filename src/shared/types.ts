@@ -37,7 +37,14 @@ export type OverlayMode = "smart" | "always";
 /**
  * Supported LLM sites
  */
-export type SupportedSite = "chatgpt" | "claude" | "gemini";
+export type SupportedSite =
+  | "chatgpt"
+  | "claude"
+  | "gemini"
+  | "perplexity"
+  | "notion"
+  | "huggingface"
+  | "copilot";
 
 /**
  * Full storage schema
@@ -113,15 +120,14 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   autoSanitize: false,
   showOverlay: true,
   overlayMode: "smart",
-  enabledSites: ["chatgpt", "claude", "gemini"],
+  enabledSites: [
+    "chatgpt",
+    "claude",
+    "gemini",
+    "huggingface",
+    // "perplexity",
+    // "notion",
+    // "copilot",
+  ],
   theme: "system",
-};
-
-/**
- * Site URL patterns for matching
- */
-export const SITE_PATTERNS: Record<SupportedSite, RegExp> = {
-  chatgpt: /^https:\/\/(chat\.openai\.com|chatgpt\.com)/,
-  claude: /^https:\/\/claude\.ai/,
-  gemini: /^https:\/\/gemini\.google\.com/,
 };

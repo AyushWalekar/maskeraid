@@ -30,6 +30,8 @@ import {
   Info,
   Trash2,
   RefreshCw,
+  Github,
+  HelpCircle,
 } from "lucide-react";
 
 interface SettingsProps {
@@ -41,7 +43,18 @@ const SITE_INFO: Record<SupportedSite, { name: string; url: string }> = {
   chatgpt: { name: "ChatGPT", url: "https://chatgpt.com" },
   claude: { name: "Claude", url: "https://claude.ai" },
   gemini: { name: "Gemini", url: "https://gemini.google.com" },
+  huggingface: { name: "Hugging Face", url: "https://huggingface.co/chat" },
+  perplexity: { name: "Perplexity", url: "https://perplexity.ai" },
+  copilot: { name: "Microsoft Copilot", url: "https://copilot.microsoft.com" },
+  notion: { name: "Notion AI", url: "https://www.notion.so" },
 };
+
+const SUPPORTED_SITES: Set<SupportedSite> = new Set([
+  "chatgpt",
+  "claude",
+  "gemini",
+  "huggingface",
+]);
 
 export function Settings({ settings, onUpdate }: SettingsProps) {
   const handleSiteToggle = (site: SupportedSite) => {
@@ -189,38 +202,68 @@ export function Settings({ settings, onUpdate }: SettingsProps) {
         <div>
           <h3 className="font-medium mb-3">Enabled Sites</h3>
           <div className="space-y-2">
-            {(Object.keys(SITE_INFO) as SupportedSite[]).map((site) => (
-              <div
-                key={site}
-                className="flex items-center justify-between p-3 rounded-lg border"
-              >
-                <div className="flex items-center gap-3">
-                  <Switch
-                    checked={settings.enabledSites.includes(site)}
-                    onCheckedChange={() => handleSiteToggle(site)}
-                  />
-                  <div>
-                    <span className="font-medium text-sm">
-                      {SITE_INFO[site].name}
-                    </span>
-                    <a
-                      href={SITE_INFO[site].url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-                    >
-                      {SITE_INFO[site].url}
-                      <ExternalLink className="w-3 h-3" />
-                    </a>
+            {(Object.keys(SITE_INFO) as SupportedSite[]).map((site) => {
+              const isSupported = SUPPORTED_SITES.has(site);
+              const isEnabled = settings.enabledSites.includes(site);
+              return (
+                <div
+                  key={site}
+                  className={`flex items-center justify-between p-3 rounded-lg border ${
+                    !isSupported ? "opacity-60" : ""
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <Switch
+                      checked={isEnabled}
+                      onCheckedChange={() => handleSiteToggle(site)}
+                      disabled={!isSupported}
+                    />
+                    <div>
+                      <span className="font-medium text-sm">
+                        {SITE_INFO[site].name}
+                      </span>
+                      <a
+                        href={SITE_INFO[site].url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                      >
+                        {SITE_INFO[site].url}
+                        <ExternalLink className="w-3 h-3" />
+                      </a>
+                    </div>
                   </div>
+                  {isEnabled && isSupported ? (
+                    <Badge variant="secondary" className="text-xs">
+                      Active
+                    </Badge>
+                  ) : !isSupported ? (
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline" className="text-xs">
+                        Coming Soon
+                      </Badge>
+                      <a
+                        href="https://github.com/AyushWalekar/maskeraid/issues"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-muted-foreground hover:text-foreground transition-colors"
+                      >
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <HelpCircle className="w-4 h-4" />
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p className="max-w-[200px]">
+                              Request this feature or report an issue
+                            </p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </a>
+                    </div>
+                  ) : null}
                 </div>
-                {settings.enabledSites.includes(site) && (
-                  <Badge variant="secondary" className="text-xs">
-                    Active
-                  </Badge>
-                )}
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 
@@ -327,6 +370,16 @@ export function Settings({ settings, onUpdate }: SettingsProps) {
           <div className="text-xs text-muted-foreground space-y-1">
             <p>Maskeraid v1.0.0</p>
             <p>Protect sensitive data before sending to LLMs</p>
+            <a
+              href="https://github.com/AyushWalekar/maskeraid"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <Github className="w-3.5 h-3.5" />
+              <span>View on GitHub</span>
+              <ExternalLink className="w-3 h-3" />
+            </a>
           </div>
         </div>
       </div>
