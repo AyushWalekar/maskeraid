@@ -4,6 +4,8 @@ A browser extension that automatically sanitizes Personally Identifiable Informa
 
 ![Extension Popup](public/demo/claude_demo_popup.png)
 
+![Demo](publish/maskeraid-demo-20260113-zoom.gif)
+
 ## What It Does
 
 Maskeraid protects your privacy by automatically applying custom sanitization rules to mask or replace sensitive information in your prompts. This includes:
