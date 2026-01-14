@@ -8,6 +8,7 @@ import type {
   ReplacementSession,
 } from "../shared/types";
 import { CSS_PREFIX, OVERLAY_Z_INDEX } from "../shared/constants";
+import { devLog } from "../shared/utils";
 
 // State
 let rules: SanitizationRule[] = [];
@@ -25,11 +26,11 @@ const currentHost = window.location.hostname;
 async function init() {
   const handler = getSiteHandler();
   if (!handler) {
-    console.log("Maskeraid: No handler for this site");
+    devLog("Maskeraid: No handler for this site");
     return;
   }
 
-  console.log(`Maskeraid: Initialized for ${handler.displayName}`);
+  devLog(`Maskeraid: Initialized for ${handler.displayName}`);
 
   // Load rules and settings
   [rules, settings] = await Promise.all([
@@ -37,11 +38,11 @@ async function init() {
     storage.getSettings(),
   ]);
 
-  console.log("Maskeraid: Settings loaded", settings);
+  devLog("Maskeraid: Settings loaded", settings);
 
   // Check if this site is enabled
   if (settings && !settings.enabledSites.includes(handler.siteName)) {
-    console.log(`Maskeraid: Disabled for ${handler.displayName}`);
+    devLog(`Maskeraid: Disabled for ${handler.displayName}`);
     return;
   }
 
@@ -53,7 +54,7 @@ async function init() {
     }
     if (changes.settings) {
       settings = changes.settings;
-      console.log("Maskeraid: Settings updated", changes.settings);
+      devLog("Maskeraid: Settings updated", changes.settings);
       // Re-setup auto-sanitize if setting changed
       if (changes.settings.autoSanitize !== undefined) {
         if (changes.settings.autoSanitize) {
@@ -81,10 +82,7 @@ async function init() {
       }
     }
     if (changes.overlayPositions) {
-      console.log(
-        "Maskeraid: Overlay positions updated",
-        changes.overlayPositions
-      );
+      devLog("Maskeraid: Overlay positions updated", changes.overlayPositions);
       // Reposition overlay if the current host's position changed
       if (!changes.overlayPositions || !changes.overlayPositions[currentHost]) {
         positionOverlay(handler);
@@ -97,7 +95,7 @@ async function init() {
 
   // Create overlay
   if (settings?.showOverlay !== false) {
-    console.log("Maskeraid: Creating overlay...");
+    devLog("Maskeraid: Creating overlay...");
     createOverlay(handler);
   }
 
@@ -259,7 +257,7 @@ function createOverlay(handler: ReturnType<typeof getSiteHandler>) {
   // Add to page
   document.body.appendChild(overlayRoot);
 
-  console.log("Maskeraid: Overlay added to DOM (New Design)");
+  devLog("Maskeraid: Overlay added to DOM (New Design)");
 
   // Position near the textarea
   positionOverlay(handler);
@@ -299,7 +297,7 @@ function createOverlay(handler: ReturnType<typeof getSiteHandler>) {
  */
 async function positionOverlay(handler: ReturnType<typeof getSiteHandler>) {
   if (!overlayRoot || !shadowRoot || !handler) {
-    console.log("Maskeraid: Cannot position - missing elements");
+    devLog("Maskeraid: Cannot position - missing elements");
     return;
   }
 
@@ -311,7 +309,7 @@ async function positionOverlay(handler: ReturnType<typeof getSiteHandler>) {
   // Check if we have a saved position for this host
   const savedPosition = await storage.getOverlayPosition(currentHost);
   if (savedPosition) {
-    console.log("Maskeraid: Using saved position", savedPosition);
+    devLog("Maskeraid: Using saved position", savedPosition);
     container.style.position = "fixed";
     container.style.top = `${savedPosition.top}px`;
     container.style.right = `${savedPosition.right}px`;
@@ -322,7 +320,7 @@ async function positionOverlay(handler: ReturnType<typeof getSiteHandler>) {
 
   const anchor = handler.getOverlayAnchor();
   if (!anchor) {
-    console.log("Maskeraid: Anchor element not found, retrying...");
+    devLog("Maskeraid: Anchor element not found, retrying...");
     // Set a default visible position so it's not invisible
     container.style.position = "fixed";
     container.style.top = "100px";
@@ -333,7 +331,7 @@ async function positionOverlay(handler: ReturnType<typeof getSiteHandler>) {
 
   const rect = anchor.getBoundingClientRect();
 
-  console.log("Maskeraid: Positioning overlay at", {
+  devLog("Maskeraid: Positioning overlay at", {
     top: rect.top,
     right: rect.right,
   });
@@ -891,7 +889,7 @@ function setupDragAndDrop(container: HTMLElement, button: HTMLElement) {
       top: newTop,
       right: newRight,
     });
-    console.log("Maskeraid: Position saved", {
+    devLog("Maskeraid: Position saved", {
       top: newTop,
       right: newRight,
     });

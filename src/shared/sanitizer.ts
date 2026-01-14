@@ -4,7 +4,7 @@ import type {
   AppliedRule,
   ReplacementMap,
 } from "./types";
-
+import { devLog } from "./utils";
 /**
  * Apply all enabled sanitization rules to the input text
  */
@@ -12,33 +12,33 @@ export function sanitize(
   text: string,
   rules: SanitizationRule[]
 ): SanitizationResult {
-  console.log(
+  devLog(
     `[SANITIZE] Starting sanitization. Original text: ${JSON.stringify(
       text
     )}. Total rules: ${rules.length}.`
   );
 
   const enabledRules = rules.filter((r) => r.enabled);
-  console.log(`[SANITIZE] Enabled rules: ${enabledRules.length}.`);
+  devLog(`[SANITIZE] Enabled rules: ${enabledRules.length}.`);
 
   let sanitizedText = text;
   const appliedRules: AppliedRule[] = [];
 
   for (const rule of enabledRules) {
-    console.log(
+    devLog(
       `[SANITIZE] Applying rule: ${rule.name}. Rule pattern: ${rule.pattern}. Rule isRegex: ${rule.isRegex}. Rule flags: ${rule.flags}. Rule replacement: ${rule.replacement}.`
     );
 
     const { newText, matches, replacementMap } = applyRule(sanitizedText, rule);
 
-    console.log(
+    devLog(
       `[SANITIZE] Matches found: ${matches.length}. Matches: ${JSON.stringify(
         matches
       )}. Replacement map: ${JSON.stringify(replacementMap)}.`
     );
 
     if (matches.length > 0) {
-      console.log(
+      devLog(
         `[SANITIZE] Text BEFORE replacement: ${JSON.stringify(
           sanitizedText
         )}. Text AFTER replacement: ${JSON.stringify(newText)}.`
@@ -51,11 +51,11 @@ export function sanitize(
       });
       sanitizedText = newText;
     } else {
-      console.log("[SANITIZE] No matches for this rule");
+      devLog("[SANITIZE] No matches for this rule");
     }
   }
 
-  console.log(
+  devLog(
     `[SANITIZE] Final sanitized text: ${JSON.stringify(
       sanitizedText
     )}. Has changes: ${sanitizedText !== text}.`
@@ -91,17 +91,17 @@ function applyRule(
   const replacementMap: ReplacementMap = {};
 
   if (rule.isRegex) {
-    console.log("[APPLY_RULE] Using regex replacement");
+    devLog("[APPLY_RULE] Using regex replacement");
     try {
       const flags = rule.flags || "g";
-      console.log("[APPLY_RULE] Regex flags:", flags);
+      devLog("[APPLY_RULE] Regex flags:", flags);
       const regexForMatching = new RegExp(rule.pattern, flags);
-      console.log("[APPLY_RULE] Regex pattern:", regexForMatching.toString());
+      devLog("[APPLY_RULE] Regex pattern:", regexForMatching.toString());
 
       // Find all matches first
       let match;
       while ((match = regexForMatching.exec(text)) !== null) {
-        console.log("[APPLY_RULE] Match found:", JSON.stringify(match[0]));
+        devLog("[APPLY_RULE] Match found:", JSON.stringify(match[0]));
         matches.push(match[0]);
         // Prevent infinite loop for zero-length matches
         if (match[0].length === 0) {
@@ -111,17 +111,14 @@ function applyRule(
 
       // Get distinct values
       const distinctValues = [...new Set(matches)];
-      console.log(
-        "[APPLY_RULE] Distinct values:",
-        JSON.stringify(distinctValues)
-      );
+      devLog("[APPLY_RULE] Distinct values:", JSON.stringify(distinctValues));
 
       // Create replacement map for distinct values
       let newText = text;
       distinctValues.forEach((value, index) => {
         const indexedReplacement = `${rule.replacement}_${index + 1}`;
         replacementMap[value] = indexedReplacement;
-        console.log(
+        devLog(
           "[APPLY_RULE] Replacing:",
           JSON.stringify(value),
           "with:",
@@ -132,11 +129,11 @@ function applyRule(
           escapeRegExp(value),
           flags.includes("i") ? "gi" : "g"
         );
-        console.log("[APPLY_RULE] Value regex:", valueRegex.toString());
+        devLog("[APPLY_RULE] Value regex:", valueRegex.toString());
         const beforeReplace = newText;
         newText = newText.replace(valueRegex, indexedReplacement);
-        console.log("[APPLY_RULE] Before:", JSON.stringify(beforeReplace));
-        console.log("[APPLY_RULE] After:", JSON.stringify(newText));
+        devLog("[APPLY_RULE] Before:", JSON.stringify(beforeReplace));
+        devLog("[APPLY_RULE] After:", JSON.stringify(newText));
       });
 
       return { newText, matches, replacementMap };
@@ -146,9 +143,9 @@ function applyRule(
     }
   } else {
     // Literal string replacement (case-insensitive, global)
-    console.log("[APPLY_RULE] Using literal replacement (case-insensitive)");
-    console.log("[APPLY_RULE] Pattern to find:", JSON.stringify(rule.pattern));
-    console.log("[APPLY_RULE] Replacement string:", rule.replacement);
+    devLog("[APPLY_RULE] Using literal replacement (case-insensitive)");
+    devLog("[APPLY_RULE] Pattern to find:", JSON.stringify(rule.pattern));
+    devLog("[APPLY_RULE] Replacement string:", rule.replacement);
 
     let newText = text;
     const lowerText = text.toLowerCase();
@@ -161,28 +158,38 @@ function applyRule(
       const actualMatch = text.substring(index, index + rule.pattern.length);
       matches.push(actualMatch);
       matchedValues.push(actualMatch);
-      console.log("[APPLY_RULE] Found pattern at index:", index, "actual match:", JSON.stringify(actualMatch));
+      devLog(
+        "[APPLY_RULE] Found pattern at index:",
+        index,
+        "actual match:",
+        JSON.stringify(actualMatch)
+      );
       index += rule.pattern.length;
     }
 
-    console.log("[APPLY_RULE] Total matches found:", matches.length);
+    devLog("[APPLY_RULE] Total matches found:", matches.length);
 
     // Get distinct matched values (preserving original case)
     const distinctValues = [...new Set(matchedValues)];
-    console.log("[APPLY_RULE] Distinct values:", JSON.stringify(distinctValues));
+    devLog("[APPLY_RULE] Distinct values:", JSON.stringify(distinctValues));
 
     // Replace each distinct value with indexed replacement
     if (distinctValues.length > 0) {
       distinctValues.forEach((value, idx) => {
         const indexedReplacement = `${rule.replacement}_${idx + 1}`;
         replacementMap[value] = indexedReplacement;
-        console.log("[APPLY_RULE] Replacing:", JSON.stringify(value), "with:", indexedReplacement);
+        devLog(
+          "[APPLY_RULE] Replacing:",
+          JSON.stringify(value),
+          "with:",
+          indexedReplacement
+        );
 
         // Use case-insensitive regex to replace all occurrences of this specific case variant
         const valueRegex = new RegExp(escapeRegExp(value), "g");
         newText = newText.replace(valueRegex, indexedReplacement);
       });
-      console.log("[APPLY_RULE] Text AFTER replacement:", JSON.stringify(newText));
+      devLog("[APPLY_RULE] Text AFTER replacement:", JSON.stringify(newText));
     }
 
     return { newText, matches, replacementMap };

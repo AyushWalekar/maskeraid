@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Maskeraid – Detect & Mask data before sending to LLMs",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Maskeraid - Detect, mask and sanitize your data before sending to LLMs by applying custom string/regex replacement rules",
   "permissions": ["storage"],
   "host_permissions": [
