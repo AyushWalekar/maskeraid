@@ -3,6 +3,24 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "author": "Ayush Walekar",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ayushwalekar/maskeraid"
+  },
+  "homepage": "https://github.com/ayushwalekar/maskeraid",
+  "bugs": {
+    "url": "https://github.com/ayushwalekar/maskeraid/issues"
+  },
+  "keywords": [
+    "data-mask",
+    "llm",
+    "pii",
+    "extension",
+    "chrome",
+    "firefox"
+  ],
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build && npm run build:content && npm run postbuild",

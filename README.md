@@ -33,7 +33,7 @@ Upcoming support for more LLM platforms!
 
 and more...
 
-Feel free to raise issues or contribute!
+Contributions are welcome! Please feel free to raise issues or contribute to the project.
 
 ![Mask Preview](public/demo/claude_demo_mask_preview.png)
 
@@ -111,8 +111,11 @@ npm install
 # Start development server with HMR
 npm run dev
 
-# Build for production
+# Build for production (chromium browser)
 npm run build
+
+# Build for production (firefox browser)
+npm run build:firefox
 
 # Type check
 npx tsc --noEmit
@@ -171,4 +174,10 @@ The `dist/` folder contains:
 
 ## License
 
-Private project - All rights reserved
+This project is licensed under the MIT License - see the [LICENSE.md](LICENSE.md) file for details.
+
+## Author
+
+- **Ayush Walekar** - [GitHub](https://github.com/ayushwalekar)
+- **Email** - [walekarayush@gmail.com](mailto:walekarayush@gmail.com)
+- **Website** - [ayushwalekar.com](https://ayushwalekar.com)
