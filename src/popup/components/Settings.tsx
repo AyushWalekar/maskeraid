@@ -44,8 +44,8 @@ const SITE_INFO: Record<SupportedSite, { name: string; url: string }> = {
   claude: { name: "Claude", url: "https://claude.ai" },
   gemini: { name: "Gemini", url: "https://gemini.google.com" },
   huggingface: { name: "Hugging Face", url: "https://huggingface.co/chat" },
-  perplexity: { name: "Perplexity", url: "https://perplexity.ai" },
   copilot: { name: "Microsoft Copilot", url: "https://copilot.microsoft.com" },
+  perplexity: { name: "Perplexity", url: "https://perplexity.ai" },
   notion: { name: "Notion AI", url: "https://www.notion.so" },
 };
 
@@ -54,6 +54,7 @@ const SUPPORTED_SITES: Set<SupportedSite> = new Set([
   "claude",
   "gemini",
   "huggingface",
+  "copilot",
 ]);
 
 export function Settings({ settings, onUpdate }: SettingsProps) {

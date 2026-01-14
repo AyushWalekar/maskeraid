@@ -11,38 +11,69 @@ export class CopilotHandler extends BaseSiteHandler {
   private readonly selectors = {
     // Microsoft Copilot textarea with placeholder "Message Copilot"
     textarea:
-      'textarea[placeholder*="Message Copilot"], textarea.userInput, textarea[placeholder*="message"], textarea[aria-label*="Ask"]',
+      'textarea[placeholder*="Message Copilot"], textarea[placeholder*="Ask Copilot"], textarea.userInput, textarea[placeholder*="message"], textarea[aria-label*="Ask"]',
+    // Additional textarea selectors for newer Copilot versions
+    textareaExtended: 'textarea[placeholder*="Ask me anything"], textarea[class*="input"], textarea[class*="prompt"]',
     // Bing Chat specific
     bingTextarea:
       'textarea[name="searchbox"], textarea#searchbox, textarea.cib-serp-main',
     // Contenteditable fallback (some versions)
     contenteditableFallback:
-      'div[contenteditable="true"][role="textbox"], div[contenteditable="true"]',
+      'div[contenteditable="true"][role="textbox"], div[contenteditable="true"][data-testid*="input"], div[contenteditable="true"]',
     // Submit button
     submitButton:
       'button[aria-label="Submit"], button[aria-label="Send"], button.submit-button, button[type="submit"]',
     // Container
-    container: "form, main, .chat-container",
+    container: "form, main, .chat-container, [class*='chat-container']",
   };
 
   matches(url: string): boolean {
-    return /^https:\/\/(copilot\.microsoft\.com|www\.bing\.com\/(chat|copilot))/.test(
-      url
-    );
+    // Match Copilot main site, Microsoft Copilot, and Bing Chat
+    // Updated to handle various URL patterns and paths
+    const copilotPattern = /^https:\/\/copilot\.microsoft\.com\//i;
+    const bingChatPattern = /^https:\/\/www\.bing\.com\/(chat|copilot)\//i;
+    const m365Pattern = /^https:\/\/(www\.)?microsoft\.com\/(copilot|m365|office)\//i;
+
+    return copilotPattern.test(url) ||
+           bingChatPattern.test(url) ||
+           m365Pattern.test(url);
   }
 
   getTextarea(): HTMLElement | null {
+    console.log("[CopilotHandler] Searching for textarea...");
+    
     let textarea = document.querySelector<HTMLElement>(this.selectors.textarea);
     if (!textarea) {
+      console.log("[CopilotHandler] Primary selector failed, trying extended selector");
+      textarea = document.querySelector<HTMLElement>(
+        this.selectors.textareaExtended
+      );
+    }
+    if (!textarea) {
+      console.log("[CopilotHandler] Extended selector failed, trying Bing selector");
       textarea = document.querySelector<HTMLElement>(
         this.selectors.bingTextarea
       );
     }
     if (!textarea) {
+      console.log("[CopilotHandler] Bing selector failed, trying contenteditable fallback");
       textarea = document.querySelector<HTMLElement>(
         this.selectors.contenteditableFallback
       );
     }
+    
+    if (textarea) {
+      console.log("[CopilotHandler] Found textarea:", {
+        tag: textarea.tagName,
+        id: textarea.id,
+        className: textarea.className,
+        placeholder: textarea.getAttribute('placeholder'),
+        ariaLabel: textarea.getAttribute('aria-label')
+      });
+    } else {
+      console.error("[CopilotHandler] Could not find textarea with any selector");
+    }
+    
     return textarea;
   }
 
@@ -110,9 +141,21 @@ export class CopilotHandler extends BaseSiteHandler {
   getOverlayAnchor(): HTMLElement | null {
     const textarea = this.getTextarea();
     if (textarea) {
-      return textarea.closest("form") || textarea.parentElement;
+      const anchor = textarea.closest("form") || textarea.parentElement;
+      console.log("[CopilotHandler] Found overlay anchor:", {
+        tag: anchor?.tagName,
+        className: anchor?.className
+      });
+      return anchor;
     }
-    return document.querySelector<HTMLElement>(this.selectors.container);
+    
+    const fallback = document.querySelector<HTMLElement>(this.selectors.container);
+    console.log("[CopilotHandler] Using fallback container:", {
+      tag: fallback?.tagName,
+      className: fallback?.className
+    });
+    
+    return fallback;
   }
 
   getSubmitButton(): HTMLElement | null {
