@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build && npm run build:content && npm run postbuild",
     "build:content": "node build-content.js",
     "postbuild": "cp manifest.json dist/ && rm -rf dist/icons && cp -r public/icons dist/",
+    "build:firefox": "tsc -b && vite build && npm run build:content && cp manifest.firefox.json dist/manifest.json && rm -rf dist/icons && cp -r public/icons dist/",
     "lint": "eslint .",
     "preview": "vite preview"
   },

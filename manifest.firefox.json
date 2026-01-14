@@ -1,0 +1,78 @@
+{
+  "manifest_version": 3,
+  "name": "Maskeraid – Detect & Mask data before sending to LLMs",
+  "version": "1.0.1",
+  "description": "Maskeraid - Detect, mask and sanitize your data before sending to LLMs by applying custom string/regex replacement rules",
+  "permissions": ["storage"],
+  "host_permissions": [
+    "https://chat.openai.com/*",
+    "https://chatgpt.com/*",
+    "https://claude.ai/*",
+    "https://gemini.google.com/*",
+    "https://perplexity.ai/*",
+    "https://notion.so/*",
+    "https://huggingface.co/*",
+    "https://copilot.microsoft.com/*",
+    "https://www.bing.com/*"
+  ],
+  "action": {
+    "default_popup": "index.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://chat.openai.com/*",
+        "https://chatgpt.com/*",
+        "https://claude.ai/*",
+        "https://gemini.google.com/*",
+        "https://perplexity.ai/*",
+        "https://notion.so/*",
+        "https://huggingface.co/*",
+        "https://copilot.microsoft.com/*",
+        "https://www.bing.com/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "background": {
+    "scripts": ["background.js"]
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "maskeraid@example.com",
+      "strict_min_version": "109.0"
+    }
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["icons/*.png"],
+      "matches": [
+        "https://chat.openai.com/*",
+        "https://chatgpt.com/*",
+        "https://claude.ai/*",
+        "https://gemini.google.com/*",
+        "https://perplexity.ai/*",
+        "https://www.perplexity.ai/*",
+        "https://notion.so/*",
+        "https://www.notion.so/*",
+        "https://huggingface.co/*",
+        "https://www.huggingface.co/*",
+        "https://copilot.microsoft.com/*",
+        "https://www.bing.com/*"
+      ]
+    }
+  ]
+}

@@ -125,9 +125,9 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
     "claude",
     "gemini",
     "huggingface",
+    "copilot",
     // "perplexity",
     // "notion",
-    // "copilot",
   ],
   theme: "system",
 };

@@ -6,11 +6,30 @@
 import { storage } from "../shared/storage";
 import { MESSAGE_TYPES } from "../shared/constants";
 
+/**
+ * Get the appropriate browser API (chrome or browser)
+ */
+function getBrowserAPI(): typeof chrome | undefined {
+  const globalBrowser = (globalThis as { browser?: typeof chrome }).browser;
+  const globalChrome = (globalThis as { chrome?: typeof chrome }).chrome;
+  
+  if (typeof globalBrowser !== "undefined") {
+    return globalBrowser as typeof chrome;
+  }
+  if (typeof globalChrome !== "undefined") {
+    return globalChrome;
+  }
+  return undefined;
+}
+
 // Listen for messages from content scripts
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  handleMessage(message, sendResponse);
-  return true; // Keep channel open for async response
-});
+const browserAPI = getBrowserAPI();
+if (browserAPI?.runtime?.onMessage?.addListener) {
+  browserAPI.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    handleMessage(message as { type: string; payload?: unknown }, sendResponse);
+    return true; // Keep channel open for async response
+  });
+}
 
 async function handleMessage(
   message: { type: string; payload?: unknown },
@@ -35,13 +54,15 @@ async function handleMessage(
 }
 
 // Listen for installation
-chrome.runtime.onInstalled.addListener(async (details) => {
-  if (details.reason === "install") {
-    // Initialize with default settings
-    const settings = await storage.getSettings();
-    console.log("Extension installed, settings:", settings);
-  }
-});
+if (browserAPI?.runtime?.onInstalled?.addListener) {
+  browserAPI.runtime.onInstalled.addListener(async (details) => {
+    if (details.reason === "install") {
+      // Initialize with default settings
+      const settings = await storage.getSettings();
+      console.log("Extension installed, settings:", settings);
+    }
+  });
+}
 
 // Log that service worker is active
 console.log("Prompt Sanitizer background service worker active");

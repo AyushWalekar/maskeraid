@@ -15,17 +15,23 @@ type StorageChangeCallback = (changes: {
 }) => void;
 
 /**
- * Chrome storage wrapper with typed operations
+ * Browser storage wrapper with typed operations
  * Abstraction layer for future cloud sync capability
+ * Supports Chrome (Chromium-based) and Firefox
  */
 class StorageService {
   private listeners: StorageChangeCallback[] = [];
 
   constructor() {
+    const chromeAPI = this.getChromeAPI();
+    
     // Listen for storage changes
-    if (typeof chrome !== "undefined" && chrome.storage) {
-      chrome.storage.onChanged.addListener((changes, areaName) => {
-        if (areaName === "local") {
+    if (chromeAPI?.storage?.local?.onChanged?.addListener) {
+      chromeAPI.storage.local.onChanged.addListener((...args: unknown[]) => {
+        const changes = args[0] as Record<string, { newValue?: unknown; oldValue?: unknown }>;
+        const areaName = args[1] as string | undefined;
+        
+        if (!areaName || areaName === "local") {
           const update: Parameters<StorageChangeCallback>[0] = {};
           if (changes.rules) {
             update.rules = changes.rules.newValue as SanitizationRule[];
@@ -41,6 +47,22 @@ class StorageService {
         }
       });
     }
+  }
+
+  /**
+   * Get the appropriate browser API (chrome or browser)
+   */
+  private getChromeAPI(): typeof chrome | undefined {
+    const globalBrowser = (globalThis as { browser?: typeof chrome }).browser;
+    const globalChrome = (globalThis as { chrome?: typeof chrome }).chrome;
+    
+    if (typeof globalBrowser !== "undefined") {
+      return globalBrowser as typeof chrome;
+    }
+    if (typeof globalChrome !== "undefined") {
+      return globalChrome;
+    }
+    return undefined;
   }
 
   /**
@@ -284,8 +306,9 @@ class StorageService {
 
   private remove(keys: string[]): Promise<void> {
     return new Promise((resolve) => {
-      if (typeof chrome !== "undefined" && chrome.storage) {
-        chrome.storage.local.remove(keys, resolve);
+      const chromeAPI = this.getChromeAPI();
+      if (chromeAPI?.storage?.local?.remove) {
+        chromeAPI.storage.local.remove(keys, () => resolve());
       } else {
         keys.forEach((key) => {
           localStorage.removeItem(`ext_${key}`);
@@ -301,12 +324,12 @@ class StorageService {
 
   private get(keys: string[]): Promise<Partial<StorageSchema>> {
     return new Promise((resolve) => {
-      if (typeof chrome !== "undefined" && chrome.storage) {
-        chrome.storage.local.get(keys, (result) => {
+      const chromeAPI = this.getChromeAPI();
+      if (chromeAPI?.storage?.local?.get) {
+        chromeAPI.storage.local.get(keys, (result) => {
           resolve(result as Partial<StorageSchema>);
         });
       } else {
-        // Fallback for development outside extension context
         const result: Partial<StorageSchema> = {};
         keys.forEach((key) => {
           const stored = localStorage.getItem(`ext_${key}`);
@@ -321,10 +344,10 @@ class StorageService {
 
   private set(data: Partial<StorageSchema>): Promise<void> {
     return new Promise((resolve) => {
-      if (typeof chrome !== "undefined" && chrome.storage) {
-        chrome.storage.local.set(data, resolve);
+      const chromeAPI = this.getChromeAPI();
+      if (chromeAPI?.storage?.local?.set) {
+        chromeAPI.storage.local.set(data, () => resolve());
       } else {
-        // Fallback for development
         Object.entries(data).forEach(([key, value]) => {
           localStorage.setItem(`ext_${key}`, JSON.stringify(value));
         });
