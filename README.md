@@ -6,7 +6,7 @@ Download here:
 
 - [Microsoft Edge Store](https://microsoftedge.microsoft.com/addons/detail/maskeraid-%E2%80%93-detect-mask/gdfoeajpndfpmjnagamdkhnifabnpbjl)
 - [Firefox Add-ons store](https://addons.mozilla.org/en-US/firefox/addon/maskeraid-mask-data-from-llms)
-- Chrome Web Store (Coming soon..)
+- [Chrome Web Store](https://chromewebstore.google.com/detail/maskeraid-%E2%80%93-detect-mask-d/pmdohklmbbihfjnpgaihigenfdeokdpm)
 
 ![Extension Popup](public/demo/claude_demo_popup.png)
 
